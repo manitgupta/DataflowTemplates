@@ -505,14 +505,15 @@ public class DataStreamToSpanner {
     PCollectionView<Ddl> ddlView = ddl.apply("Cloud Spanner DDL as view", View.asSingleton());
 
     PCollection<FailsafeElement<String, String>> jsonRecords = null;
-
+    PCollection<FailsafeElement<String, String>> datastreamJsonRecords = null;
+    PCollection<FailsafeElement<String, String>> dlqJsonRecords = null;
     // Elements sent to the Dead Letter Queue are to be reconsumed.
     // A DLQManager is to be created using PipelineOptions, and it is in charge
     // of building pieces of the DLQ.
     PCollectionTuple reconsumedElements =
         dlqManager.getReconsumerDataTransform(
             pipeline.apply(dlqManager.dlqReconsumer(options.getDlqRetryMinutes())));
-    PCollection<FailsafeElement<String, String>> dlqJsonRecords =
+    dlqJsonRecords =
         reconsumedElements
             .get(DeadLetterQueueManager.RETRYABLE_ERRORS)
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
@@ -523,7 +524,7 @@ public class DataStreamToSpanner {
 
       LOG.info("Regular Datastream flow");
 
-      PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
+      datastreamJsonRecords =
           pipeline.apply(
               new DataStreamIO(
                       options.getStreamName(),
@@ -534,11 +535,6 @@ public class DataStreamToSpanner {
                   .withFileReadConcurrency(options.getFileReadConcurrency())
                   .withDirectoryWatchDuration(
                       Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
-
-      jsonRecords =
-          PCollectionList.of(datastreamJsonRecords)
-              .and(dlqJsonRecords)
-              .apply(Flatten.pCollections());
     } else {
 
       LOG.info("DLQ retry flow");
@@ -558,9 +554,22 @@ public class DataStreamToSpanner {
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
 
-    SpannerTransactionWriter.Result spannerWriteResults =
-        jsonRecords.apply(
-            "Write events to Cloud Spanner",
+    SpannerTransactionWriter.Result spannerMainPathWriteResults =
+        datastreamJsonRecords.apply(
+            "Write main path events to Cloud Spanner",
+            new SpannerTransactionWriter(
+                spannerConfig,
+                ddlView,
+                schema,
+                transformationContext,
+                options.getShadowTablePrefix(),
+                options.getDatastreamSourceType(),
+                options.getRoundJsonDecimals(),
+                isRegularMode));
+
+    SpannerTransactionWriter.Result spannerDLQPathWriteResults =
+        dlqJsonRecords.apply(
+            "Write dlq path events to Cloud Spanner",
             new SpannerTransactionWriter(
                 spannerConfig,
                 ddlView,
@@ -576,7 +585,21 @@ public class DataStreamToSpanner {
      * a) Retryable errors are written to retry GCS Dead letter queue
      * b) Severe errors are written to severe GCS Dead letter queue
      */
-    spannerWriteResults
+    spannerMainPathWriteResults
+        .retryableErrors()
+        .apply(
+            "DLQ: Write retryable Failures to GCS",
+            MapElements.via(new StringDeadLetterQueueSanitizer()))
+        .setCoder(StringUtf8Coder.of())
+        .apply(
+            "Write To DLQ",
+            DLQWriteTransform.WriteDLQ.newBuilder()
+                .withDlqDirectory(dlqManager.getRetryDlqDirectoryWithDateTime())
+                .withTmpDirectory(dlqManager.getRetryDlqDirectory() + "tmp/")
+                .setIncludePaneInfo(true)
+                .build());
+
+    spannerDLQPathWriteResults
         .retryableErrors()
         .apply(
             "DLQ: Write retryable Failures to GCS",
@@ -595,14 +618,34 @@ public class DataStreamToSpanner {
             .get(DeadLetterQueueManager.PERMANENT_ERRORS)
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
 
-    PCollection<FailsafeElement<String, String>> permanentErrors =
+    PCollection<FailsafeElement<String, String>> permanentErrors1 =
         PCollectionList.of(dlqErrorRecords)
-            .and(spannerWriteResults.permanentErrors())
+            .and(spannerMainPathWriteResults.permanentErrors())
+            .apply(Flatten.pCollections())
+            .apply("Reshuffle", Reshuffle.viaRandomKey());
+
+    PCollection<FailsafeElement<String, String>> permanentErrors2 =
+        PCollectionList.of(dlqErrorRecords)
+            .and(spannerDLQPathWriteResults.permanentErrors())
             .apply(Flatten.pCollections())
             .apply("Reshuffle", Reshuffle.viaRandomKey());
 
     // increment the metrics
-    permanentErrors
+    permanentErrors1
+        .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
+        .apply(
+            "DLQ: Write Severe errors to GCS",
+            MapElements.via(new StringDeadLetterQueueSanitizer()))
+        .setCoder(StringUtf8Coder.of())
+        .apply(
+            "Write To DLQ",
+            DLQWriteTransform.WriteDLQ.newBuilder()
+                .withDlqDirectory(dlqManager.getSevereDlqDirectoryWithDateTime())
+                .withTmpDirectory(dlqManager.getSevereDlqDirectory() + "tmp/")
+                .setIncludePaneInfo(true)
+                .build());
+
+    permanentErrors2
         .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
         .apply(
             "DLQ: Write Severe errors to GCS",
