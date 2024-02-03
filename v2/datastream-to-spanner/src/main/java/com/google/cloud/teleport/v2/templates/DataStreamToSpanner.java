@@ -486,6 +486,7 @@ public class DataStreamToSpanner {
             .withHost(ValueProvider.StaticValueProvider.of(options.getSpannerHost()))
             .withInstanceId(ValueProvider.StaticValueProvider.of(options.getInstanceId()))
             .withDatabaseId(ValueProvider.StaticValueProvider.of(options.getDatabaseId()))
+            .withCommitDeadline(Duration.standardSeconds(60))
             .withRpcPriority(ValueProvider.StaticValueProvider.of(options.getSpannerPriority()));
 
     /* Process information schema
@@ -537,8 +538,7 @@ public class DataStreamToSpanner {
       jsonRecords =
           PCollectionList.of(datastreamJsonRecords)
               .and(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+              .apply(Flatten.pCollections());
     } else {
 
       LOG.info("DLQ retry flow");
