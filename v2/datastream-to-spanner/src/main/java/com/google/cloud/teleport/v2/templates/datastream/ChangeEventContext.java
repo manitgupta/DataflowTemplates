@@ -75,6 +75,10 @@ public abstract class ChangeEventContext {
     return Arrays.asList(dataMutation, shadowTableMutation);
   }
 
+  public Mutation getDataMutation() {
+    return dataMutation;
+  }
+
   // Getter method for the primary key of the change event.
   public Key getPrimaryKey() {
     return primaryKey;
