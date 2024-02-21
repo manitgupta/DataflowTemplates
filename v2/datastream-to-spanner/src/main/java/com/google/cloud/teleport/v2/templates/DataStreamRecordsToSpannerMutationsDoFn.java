@@ -26,7 +26,6 @@ import java.io.Serializable;
 import java.util.Map;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.TupleTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,25 +77,11 @@ class DataStreamRecordsToSpannerMutationsDoFn extends DoFn<FailsafeElement<Strin
                 changeEvent, ddl, "", sourceType);
         c.output(changeEventContext.getDataMutation());
       }
-    } catch (IllegalStateException e) {
-      LOG.warn(e.getMessage());
-      outputWithErrorTag(c, msg, e, SpannerTransactionWriter.PERMANENT_ERROR_TAG);
     } catch (Exception e) {
       LOG.warn(e.getMessage());
-      outputWithErrorTag(c, msg, e, SpannerTransactionWriter.RETRYABLE_ERROR_TAG);
     }
   }
 
-  void outputWithErrorTag(
-      ProcessContext c,
-      FailsafeElement<String, String> changeEvent,
-      Exception e,
-      TupleTag<FailsafeElement<String, String>> errorTag) {
-    // Making a copy, as the input must not be mutated.
-    FailsafeElement<String, String> output = FailsafeElement.of(changeEvent);
-    output.setErrorMessage(e.getMessage());
-    c.output(errorTag, output);
-  }
   void verifyTableInSession(String tableName)
       throws IllegalArgumentException, DroppedTableException {
     if (!schema.getSrcToID().containsKey(tableName)) {

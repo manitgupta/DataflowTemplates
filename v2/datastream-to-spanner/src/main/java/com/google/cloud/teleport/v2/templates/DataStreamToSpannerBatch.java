@@ -575,23 +575,8 @@ public class DataStreamToSpannerBatch {
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
 
-    DataStreamRecordsToSpannerMutations.Result spannerMutations = jsonRecords.apply(
-        "Datastream records as mutations", new DataStreamRecordsToSpannerMutations(transformationContext, ddlView, schema, options.getDatastreamSourceType()));
-
-        spannerMutations
-            .successfulSpannerWrites()
-            .setCoder(SerializableCoder.of(Mutation.class))
-            .apply(
-            "Write mutations",
-            SpannerIO.write()
-                .withSchemaReadySignal(ddl)
-                .withSpannerConfig(spannerConfig)
-                .withCommitDeadline(Duration.standardMinutes(1))
-                .withMaxCumulativeBackoff(Duration.standardHours(2))
-                .withMaxNumMutations(10000)
-                .withGroupingFactor(100)
-        );
-
+    jsonRecords.apply(
+        "Datastream records as mutations", new DataStreamRecordsToSpannerMutations(transformationContext, ddlView, schema, options.getDatastreamSourceType(), spannerConfig));
     // Execute the pipeline and return the result.
     return pipeline.run();
   }
