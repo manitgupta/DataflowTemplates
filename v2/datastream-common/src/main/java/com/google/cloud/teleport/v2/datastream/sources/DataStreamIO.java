@@ -218,7 +218,7 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<String>> {
                           new ReadFileRangesFn.ReadFileRangesFnExceptionHandler())))
               .setCoder(StringUtf8Coder.of());
     }
-    return datastreamRecords.apply("Reshuffle", Reshuffle.viaRandomKey());
+    return datastreamRecords.apply("Reshuffle", Reshuffle.<String>viaRandomKey().withNumBuckets(200000));
   }
 
   private static class CreateParseSourceFn
