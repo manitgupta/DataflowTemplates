@@ -43,8 +43,9 @@ public class DataStreamRecordsToSpannerMutations
         .apply("Write mutations",
         SpannerIO.write()
             .withSpannerConfig(spannerConfig)
-            .withCommitDeadline(Duration.standardMinutes(1))
+            .withCommitDeadline(Duration.standardMinutes(2))
             .withMaxCumulativeBackoff(Duration.standardHours(2))
+            .withHighPriority()
             .withMaxNumMutations(10000)
             .withGroupingFactor(100));
   }
