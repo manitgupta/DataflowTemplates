@@ -519,6 +519,7 @@ public class DataStreamToSpannerBatch {
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
 
+    LOG.info("Datastream records as mutations");
     jsonRecords.apply(
         "Datastream records as mutations", new DataStreamRecordsToSpannerMutations(transformationContext, ddlView, schema, options.getDatastreamSourceType(), spannerConfig));
     // Execute the pipeline and return the result.
