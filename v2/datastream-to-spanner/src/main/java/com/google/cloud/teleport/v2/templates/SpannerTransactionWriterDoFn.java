@@ -84,7 +84,7 @@ import org.slf4j.LoggerFactory;
  * <p>Change events that failed to be written will be pushed onto the secondary output tagged with
  * PERMANENT_ERROR_TAG/RETRYABLE_ERROR_TAG along with the exception that caused the failure.
  */
-class SpannerTransactionWriterDoFn extends DoFn<FailsafeElement<String, String>, Timestamp>
+class SpannerTransactionWriterDoFn extends DoFn<String, Timestamp>
     implements Serializable {
 
   // TODO - Change Cloud Spanner nomenclature in code used to read DDL.
@@ -177,7 +177,7 @@ class SpannerTransactionWriterDoFn extends DoFn<FailsafeElement<String, String>,
 
   @ProcessElement
   public void processElement(ProcessContext c) {
-    FailsafeElement<String, String> msg = c.element();
+    String msg = c.element();
     Ddl ddl = c.sideInput(ddlView);
     processedEvents.inc();
 
@@ -189,7 +189,7 @@ class SpannerTransactionWriterDoFn extends DoFn<FailsafeElement<String, String>,
      */
     try {
 
-      JsonNode changeEvent = mapper.readTree(msg.getPayload());
+      JsonNode changeEvent = mapper.readTree(msg);
 
       JsonNode retryCount = changeEvent.get("_metadata_retry_count");
 
@@ -447,13 +447,11 @@ class SpannerTransactionWriterDoFn extends DoFn<FailsafeElement<String, String>,
 
   void outputWithErrorTag(
       ProcessContext c,
-      FailsafeElement<String, String> changeEvent,
+      String changeEvent,
       Exception e,
-      TupleTag<FailsafeElement<String, String>> errorTag) {
+      TupleTag<String> errorTag) {
     // Making a copy, as the input must not be mutated.
-    FailsafeElement<String, String> output = FailsafeElement.of(changeEvent);
-    output.setErrorMessage(e.getMessage());
-    c.output(errorTag, output);
+    c.output(errorTag, changeEvent);
   }
 
   String getTxnTag(PipelineOptions options) {

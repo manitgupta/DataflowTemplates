@@ -55,6 +55,7 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.StreamingOptions;
 import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -575,8 +576,20 @@ public class DataStreamToSpanner {
     TransformationContext transformationContext =
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
+
+    PCollection<String> normalRecords = jsonRecords.apply(
+        "Convert FailsafeElements to string",
+        ParDo.of(
+            new DoFn<FailsafeElement<String, String>, String>() {
+              @ProcessElement
+              public void processElement(ProcessContext context) {
+                FailsafeElement<String, String> element = context.element();
+                context.output(element.getPayload());
+              }
+            }));
+
     SpannerTransactionWriter.Result spannerWriteResults =
-        jsonRecords.apply(
+        normalRecords.apply(
             "Write events to Cloud Spanner",
             new SpannerTransactionWriter(
                 spannerConfig,
@@ -592,42 +605,42 @@ public class DataStreamToSpanner {
      * a) Retryable errors are written to retry GCS Dead letter queue
      * b) Severe errors are written to severe GCS Dead letter queue
      */
-    spannerWriteResults
-        .retryableErrors()
-        .apply(
-            "DLQ: Write retryable Failures to GCS",
-            MapElements.via(new StringDeadLetterQueueSanitizer()))
-        .setCoder(StringUtf8Coder.of())
-        .apply(
-            "Write To DLQ",
-            DLQWriteTransform.WriteDLQ.newBuilder()
-                .withDlqDirectory(dlqManager.getRetryDlqDirectoryWithDateTime())
-                .withTmpDirectory(options.getDeadLetterQueueDirectory() + "/tmp_retry/")
-                .setIncludePaneInfo(true)
-                .build());
-    PCollection<FailsafeElement<String, String>> dlqErrorRecords =
-        reconsumedElements
-            .get(DeadLetterQueueManager.PERMANENT_ERRORS)
-            .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
-    PCollection<FailsafeElement<String, String>> permanentErrors =
-        PCollectionList.of(dlqErrorRecords)
-            .and(spannerWriteResults.permanentErrors())
-            .apply(Flatten.pCollections())
-            .apply("Reshuffle", Reshuffle.viaRandomKey());
-    // increment the metrics
-    permanentErrors
-        .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
-        .apply(
-            "DLQ: Write Severe errors to GCS",
-            MapElements.via(new StringDeadLetterQueueSanitizer()))
-        .setCoder(StringUtf8Coder.of())
-        .apply(
-            "Write To DLQ",
-            DLQWriteTransform.WriteDLQ.newBuilder()
-                .withDlqDirectory(dlqManager.getSevereDlqDirectoryWithDateTime())
-                .withTmpDirectory((options).getDeadLetterQueueDirectory() + "/tmp_severe/")
-                .setIncludePaneInfo(true)
-                .build());
+//    spannerWriteResults
+//        .retryableErrors()
+//        .apply(
+//            "DLQ: Write retryable Failures to GCS",
+//            MapElements.via(new StringDeadLetterQueueSanitizer()))
+//        .setCoder(StringUtf8Coder.of())
+//        .apply(
+//            "Write To DLQ",
+//            DLQWriteTransform.WriteDLQ.newBuilder()
+//                .withDlqDirectory(dlqManager.getRetryDlqDirectoryWithDateTime())
+//                .withTmpDirectory(options.getDeadLetterQueueDirectory() + "/tmp_retry/")
+//                .setIncludePaneInfo(true)
+//                .build());
+//    PCollection<FailsafeElement<String, String>> dlqErrorRecords =
+//        reconsumedElements
+//            .get(DeadLetterQueueManager.PERMANENT_ERRORS)
+//            .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
+//    PCollection<FailsafeElement<String, String>> permanentErrors =
+//        PCollectionList.of(dlqErrorRecords)
+//            .and(spannerWriteResults.permanentErrors())
+//            .apply(Flatten.pCollections())
+//            .apply("Reshuffle", Reshuffle.viaRandomKey());
+//    // increment the metrics
+//    permanentErrors
+//        .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
+//        .apply(
+//            "DLQ: Write Severe errors to GCS",
+//            MapElements.via(new StringDeadLetterQueueSanitizer()))
+//        .setCoder(StringUtf8Coder.of())
+//        .apply(
+//            "Write To DLQ",
+//            DLQWriteTransform.WriteDLQ.newBuilder()
+//                .withDlqDirectory(dlqManager.getSevereDlqDirectoryWithDateTime())
+//                .withTmpDirectory((options).getDeadLetterQueueDirectory() + "/tmp_severe/")
+//                .setIncludePaneInfo(true)
+//                .build());
     // Execute the pipeline and return the result.
     return pipeline.run();
   }

@@ -50,15 +50,15 @@ import org.apache.beam.sdk.values.TupleTagList;
  */
 public class SpannerTransactionWriter
     extends PTransform<
-        PCollection<FailsafeElement<String, String>>, SpannerTransactionWriter.Result> {
+        PCollection<String>, SpannerTransactionWriter.Result> {
 
   /* The tag for mutations failed with non-retryable errors. */
-  public static final TupleTag<FailsafeElement<String, String>> PERMANENT_ERROR_TAG =
-      new TupleTag<FailsafeElement<String, String>>() {};
+  public static final TupleTag<String> PERMANENT_ERROR_TAG =
+      new TupleTag<String>() {};
 
   /* The Tag for retryable Failed mutations */
-  public static final TupleTag<FailsafeElement<String, String>> RETRYABLE_ERROR_TAG =
-      new TupleTag<FailsafeElement<String, String>>() {};
+  public static final TupleTag<String> RETRYABLE_ERROR_TAG =
+      new TupleTag<String>() {};
 
   /* The Tag for Successful mutations */
   public static final TupleTag<Timestamp> SUCCESSFUL_EVENT_TAG = new TupleTag<Timestamp>() {};
@@ -109,7 +109,7 @@ public class SpannerTransactionWriter
 
   @Override
   public SpannerTransactionWriter.Result expand(
-      PCollection<FailsafeElement<String, String>> input) {
+      PCollection<String> input) {
     PCollectionTuple spannerWriteResults =
         input.apply(
             "Write Mutations",
@@ -145,8 +145,8 @@ public class SpannerTransactionWriter
 
     private static Result create(
         PCollection<Timestamp> successfulSpannerWrites,
-        PCollection<FailsafeElement<String, String>> permanentErrors,
-        PCollection<FailsafeElement<String, String>> retryableErrors) {
+        PCollection<String> permanentErrors,
+        PCollection<String> retryableErrors) {
       Preconditions.checkNotNull(successfulSpannerWrites);
       Preconditions.checkNotNull(permanentErrors);
       Preconditions.checkNotNull(retryableErrors);
@@ -156,9 +156,9 @@ public class SpannerTransactionWriter
 
     public abstract PCollection<Timestamp> successfulSpannerWrites();
 
-    public abstract PCollection<FailsafeElement<String, String>> permanentErrors();
+    public abstract PCollection<String> permanentErrors();
 
-    public abstract PCollection<FailsafeElement<String, String>> retryableErrors();
+    public abstract PCollection<String> retryableErrors();
 
     @Override
     public void finishSpecifyingOutput(

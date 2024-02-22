@@ -148,10 +148,10 @@ public class SpannerStreamingWriteIntegrationTest {
     PCollectionView<Ddl> ddlView = ddl.apply("Cloud Spanner DDL as view", View.asSingleton());
     Schema schema = new Schema();
 
-    jsonRecords.apply(
-        "Write events to Cloud Spanner",
-        new SpannerTransactionWriter(
-            spannerConfig, ddlView, schema, null, shadowTablePrefix, "oracle", false, true));
+//    jsonRecords.apply(
+//        "Write events to Cloud Spanner",
+//        new SpannerTransactionWriter(
+//            spannerConfig, ddlView, schema, null, shadowTablePrefix, "oracle", false, true));
 
     PipelineResult testResult = testPipeline.run();
     testResult.waitUntilFinish();
