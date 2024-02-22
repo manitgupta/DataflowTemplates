@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
  * use downstream.
  */
 public class FormatDatastreamRecordToJson
-    implements SerializableFunction<GenericRecord, FailsafeElement<String, String>> {
+    implements SerializableFunction<GenericRecord, String> {
 
   /** Names of the custom avro types that we'll be using. */
   public static class CustomAvroTypes {
@@ -104,7 +104,7 @@ public class FormatDatastreamRecordToJson
   }
 
   @Override
-  public FailsafeElement<String, String> apply(GenericRecord record) {
+  public String apply(GenericRecord record) {
     ObjectMapper mapper = new ObjectMapper();
     ObjectNode outputObject = mapper.createObjectNode();
     UnifiedTypesFormatter.payloadToJson(getPayload(record), outputObject);
@@ -155,7 +155,7 @@ public class FormatDatastreamRecordToJson
     // All Raw Metadata
     outputObject.put("_metadata_source", getSourceMetadataJson(record));
 
-    return FailsafeElement.of(outputObject.toString(), outputObject.toString());
+    return outputObject.toString();
   }
 
   private GenericRecord getPayload(GenericRecord record) {

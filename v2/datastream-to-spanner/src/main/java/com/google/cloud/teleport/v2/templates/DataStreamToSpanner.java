@@ -519,7 +519,7 @@ public class DataStreamToSpanner {
                 options.getShadowTablePrefix(),
                 options.getDatastreamSourceType()));
     PCollectionView<Ddl> ddlView = ddl.apply("Cloud Spanner DDL as view", View.asSingleton());
-    PCollection<FailsafeElement<String, String>> jsonRecords = null;
+    PCollection<String> jsonRecords = null;
     // Elements sent to the Dead Letter Queue are to be reconsumed.
     // A DLQManager is to be created using PipelineOptions, and it is in charge
     // of building pieces of the DLQ.
@@ -546,28 +546,23 @@ public class DataStreamToSpanner {
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
     if (isRegularMode) {
       LOG.info("Regular Datastream flow");
-      PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
-          pipeline.apply(
-              new DataStreamIO(
-                      options.getStreamName(),
-                      options.getInputFilePattern(),
-                      options.getInputFileFormat(),
-                      options.getGcsPubSubSubscription(),
-                      options.getRfcStartDateTime())
-                  .withFileReadConcurrency(options.getFileReadConcurrency())
-                  .withDirectoryWatchDuration(
-                      Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
-      jsonRecords =
-          PCollectionList.of(datastreamJsonRecords)
-              .and(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+      jsonRecords = pipeline.apply(
+          new DataStreamIO(
+                  options.getStreamName(),
+                  options.getInputFilePattern(),
+                  options.getInputFileFormat(),
+                  options.getGcsPubSubSubscription(),
+                  options.getRfcStartDateTime())
+              .withFileReadConcurrency(options.getFileReadConcurrency())
+              .withDirectoryWatchDuration(
+                  Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
+
     } else {
       LOG.info("DLQ retry flow");
-      jsonRecords =
-          PCollectionList.of(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+//      jsonRecords =
+//          PCollectionList.of(dlqJsonRecords)
+//              .apply(Flatten.pCollections())
+//              .apply("Reshuffle", Reshuffle.viaRandomKey());
     }
     /*
      * Stage 2: Write records to Cloud Spanner
@@ -577,19 +572,8 @@ public class DataStreamToSpanner {
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
 
-    PCollection<String> normalRecords = jsonRecords.apply(
-        "Convert FailsafeElements to string",
-        ParDo.of(
-            new DoFn<FailsafeElement<String, String>, String>() {
-              @ProcessElement
-              public void processElement(ProcessContext context) {
-                FailsafeElement<String, String> element = context.element();
-                context.output(element.getPayload());
-              }
-            }));
-
     SpannerTransactionWriter.Result spannerWriteResults =
-        normalRecords.apply(
+        jsonRecords.apply(
             "Write events to Cloud Spanner",
             new SpannerTransactionWriter(
                 spannerConfig,

@@ -21,9 +21,6 @@ import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.metadata.TemplateParameter;
 import com.google.cloud.teleport.metadata.TemplateParameter.TemplateEnumOption;
-import com.google.cloud.teleport.v2.cdc.dlq.DeadLetterQueueManager;
-import com.google.cloud.teleport.v2.cdc.dlq.PubSubNotifiedDlqIO;
-import com.google.cloud.teleport.v2.coders.FailsafeElementCoder;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
 import com.google.cloud.teleport.v2.datastream.sources.DataStreamIO;
 import com.google.cloud.teleport.v2.datastream.utils.DataStreamClient;
@@ -35,34 +32,18 @@ import com.google.cloud.teleport.v2.spanner.migrations.utils.TransformationConte
 import com.google.cloud.teleport.v2.templates.DataStreamToSpanner.Options;
 import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
 import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
-import com.google.cloud.teleport.v2.transforms.FailsafeElementTransforms;
-import com.google.cloud.teleport.v2.values.FailsafeElement;
-import com.google.common.base.Strings;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
-import org.apache.beam.sdk.coders.CoderRegistry;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
-import org.apache.beam.sdk.io.FileSystems;
-import org.apache.beam.sdk.io.fs.ResolveOptions.StandardResolveOptions;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.StreamingOptions;
 import org.apache.beam.sdk.options.ValueProvider;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.Flatten;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionList;
-import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.joda.time.Duration;
 import org.slf4j.Logger;
@@ -485,7 +466,6 @@ public class DataStreamToSpannerBatch {
      *   3) Write Failures to GCS Dead Letter Queue
      */
     Pipeline pipeline = Pipeline.create(options);
-    DeadLetterQueueManager dlqManager = buildDlqManager(options);
     // Ingest session file into schema object.
     Schema schema = SessionFileReader.read(options.getSessionFilePath());
     /*
@@ -517,51 +497,20 @@ public class DataStreamToSpannerBatch {
                 options.getShouldCreateShadowTables(),
                 options.getShadowTablePrefix(),
                 options.getDatastreamSourceType()));
+
     PCollectionView<Ddl> ddlView = ddl.apply("Cloud Spanner DDL as view", View.asSingleton());
-    PCollection<FailsafeElement<String, String>> jsonRecords = null;
-    // Elements sent to the Dead Letter Queue are to be reconsumed.
-    // A DLQManager is to be created using PipelineOptions, and it is in charge
-    // of building pieces of the DLQ.
-    PCollectionTuple reconsumedElements = null;
-    boolean isRegularMode = "regular".equals(options.getRunMode());
-    if (isRegularMode && (!Strings.isNullOrEmpty(options.getDlqGcsPubSubSubscription()))) {
-      reconsumedElements =
-          dlqManager.getReconsumerDataTransformForFiles(
-              pipeline.apply(
-                  "Read retry from PubSub",
-                  new PubSubNotifiedDlqIO(
-                      options.getDlqGcsPubSubSubscription(),
-                      // file paths to ignore when re-consuming for retry
-                      new ArrayList<String>(
-                          Arrays.asList("/severe/", "/tmp_retry", "/tmp_severe/", ".temp")))));
-    } else {
-      reconsumedElements =
-          dlqManager.getReconsumerDataTransform(
-              pipeline.apply(dlqManager.dlqReconsumer(options.getDlqRetryMinutes())));
-    }
-    PCollection<FailsafeElement<String, String>> dlqJsonRecords =
-        reconsumedElements
-            .get(DeadLetterQueueManager.RETRYABLE_ERRORS)
-            .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
-    if (isRegularMode) {
-      LOG.info("Regular Datastream flow");
-      jsonRecords = pipeline.apply(
-          new DataStreamIO(
-              options.getStreamName(),
-              options.getInputFilePattern(),
-              options.getInputFileFormat(),
-              options.getGcsPubSubSubscription(),
-              options.getRfcStartDateTime())
-              .withFileReadConcurrency(options.getFileReadConcurrency())
-              .withDirectoryWatchDuration(
-                  Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
-    } else {
-      LOG.info("DLQ retry flow");
-      jsonRecords =
-          PCollectionList.of(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
-    }
+
+    LOG.info("Regular Datastream flow");
+    PCollection<String> jsonRecords = pipeline.apply(
+        new DataStreamIO(
+            options.getStreamName(),
+            options.getInputFilePattern(),
+            options.getInputFileFormat(),
+            options.getGcsPubSubSubscription(),
+            options.getRfcStartDateTime())
+            .withFileReadConcurrency(options.getFileReadConcurrency())
+            .withDirectoryWatchDuration(
+                Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
     /*
      * Stage 2: Write records to Cloud Spanner
      */
@@ -570,42 +519,9 @@ public class DataStreamToSpannerBatch {
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
 
-    PCollection<String> records = jsonRecords.apply("Convert Datastream FailsafeElement to String",
-        ParDo.of(
-            new DoFn<FailsafeElement<String, String>, String>() {
-              @ProcessElement
-              public void processElement(ProcessContext context) {
-                FailsafeElement<String, String> element = context.element();
-                context.output(element.getPayload());
-              }
-            }));
-
-    records.apply(
+    jsonRecords.apply(
         "Datastream records as mutations", new DataStreamRecordsToSpannerMutations(transformationContext, ddlView, schema, options.getDatastreamSourceType(), spannerConfig));
     // Execute the pipeline and return the result.
     return pipeline.run();
-  }
-
-  private static DeadLetterQueueManager buildDlqManager(Options options) {
-    String tempLocation =
-        options.as(DataflowPipelineOptions.class).getTempLocation().endsWith("/")
-            ? options.as(DataflowPipelineOptions.class).getTempLocation()
-            : options.as(DataflowPipelineOptions.class).getTempLocation() + "/";
-    String dlqDirectory =
-        options.getDeadLetterQueueDirectory().isEmpty()
-            ? tempLocation + "dlq/"
-            : options.getDeadLetterQueueDirectory();
-    LOG.info("Dead-letter queue directory: {}", dlqDirectory);
-    options.setDeadLetterQueueDirectory(dlqDirectory);
-    if ("regular".equals(options.getRunMode())) {
-      return DeadLetterQueueManager.create(dlqDirectory, options.getDlqMaxRetryCount());
-    } else {
-      String retryDlqUri =
-          FileSystems.matchNewResource(dlqDirectory, true)
-              .resolve("severe", StandardResolveOptions.RESOLVE_DIRECTORY)
-              .toString();
-      LOG.info("Dead-letter retry directory: {}", retryDlqUri);
-      return DeadLetterQueueManager.create(dlqDirectory, retryDlqUri, 0);
-    }
   }
 }

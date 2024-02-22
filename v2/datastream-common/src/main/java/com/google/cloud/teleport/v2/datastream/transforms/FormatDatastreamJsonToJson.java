@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
  * will use downstream.
  */
 public final class FormatDatastreamJsonToJson
-    extends FormatDatastreamRecord<String, FailsafeElement<String, String>> {
+    extends FormatDatastreamRecord<String, String> {
 
   static final Logger LOG = LoggerFactory.getLogger(FormatDatastreamJsonToJson.class);
   static final DateTimeFormatter DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER =
@@ -121,7 +121,7 @@ public final class FormatDatastreamJsonToJson
     // All Raw Metadata
     outputObject.put("_metadata_source", getSourceMetadata(record));
 
-    c.output(FailsafeElement.of(outputObject.toString(), outputObject.toString()));
+    c.output(outputObject.toString());
   }
 
   private String getStreamName(JsonNode record) {

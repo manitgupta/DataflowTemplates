@@ -20,10 +20,8 @@ import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Mo
 import com.google.api.client.util.DateTime;
 import com.google.api.services.storage.model.Objects;
 import com.google.api.services.storage.model.StorageObject;
-import com.google.cloud.teleport.v2.coders.FailsafeElementCoder;
 import com.google.cloud.teleport.v2.datastream.transforms.FormatDatastreamJsonToJson;
 import com.google.cloud.teleport.v2.datastream.transforms.FormatDatastreamRecordToJson;
-import com.google.cloud.teleport.v2.values.FailsafeElement;
 import com.google.common.base.Strings;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -98,7 +96,7 @@ import org.slf4j.LoggerFactory;
  *   <li>`gs://BUCKET/root/prefix/HR_SALARIES/` - This directory represents an "object"
  * </ul>
  */
-public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement<String, String>>> {
+public class DataStreamIO extends PTransform<PBegin, PCollection<String>> {
 
   private static final Logger LOG = LoggerFactory.getLogger(DataStreamIO.class);
   private static final String AVRO_SUFFIX = "avro";
@@ -173,20 +171,18 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
   }
 
   @Override
-  public PCollection<FailsafeElement<String, String>> expand(PBegin input) {
+  public PCollection<String> expand(PBegin input) {
     PCollection<ReadableFile> datastreamFiles =
         input.apply("Read Datastream Files", new DataStreamFileIO());
-    PCollection<FailsafeElement<String, String>> datastreamJsonStrings =
+    PCollection<String> datastreamJsonStrings =
         expandDataStreamJsonStrings(datastreamFiles);
     return datastreamJsonStrings;
   }
 
-  public PCollection<FailsafeElement<String, String>> expandDataStreamJsonStrings(
+  public PCollection<String> expandDataStreamJsonStrings(
       PCollection<ReadableFile> datastreamFiles) {
-    PCollection<FailsafeElement<String, String>> datastreamRecords;
+    PCollection<String> datastreamRecords;
 
-    FailsafeElementCoder<String, String> coder =
-        FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
     if (this.fileType.equals(JSON_SUFFIX)) {
       datastreamRecords =
           datastreamFiles
@@ -203,10 +199,9 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
                               .withStreamName(this.streamName)
                               .withRenameColumnValues(this.renameColumns)
                               .withHashRowId(this.hashRowId)
-                              .withLowercaseSourceColumns(this.lowercaseSourceColumns)))
-              .setCoder(coder);
+                              .withLowercaseSourceColumns(this.lowercaseSourceColumns)));
     } else {
-      SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn =
+      SerializableFunction<GenericRecord, String> parseFn =
           FormatDatastreamRecordToJson.create()
               .withStreamName(this.streamName)
               .withRenameColumnValues(this.renameColumns)
@@ -218,28 +213,28 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
               .apply(
                   "ParseAvroRows",
                   ParDo.of(
-                      new ReadFileRangesFn<FailsafeElement<String, String>>(
-                          new CreateParseSourceFn(parseFn, coder),
+                      new ReadFileRangesFn<String>(
+                          new CreateParseSourceFn(parseFn, StringUtf8Coder.of()),
                           new ReadFileRangesFn.ReadFileRangesFnExceptionHandler())))
-              .setCoder(coder);
+              .setCoder(StringUtf8Coder.of());
     }
     return datastreamRecords.apply("Reshuffle", Reshuffle.viaRandomKey());
   }
 
   private static class CreateParseSourceFn
-      implements SerializableFunction<String, FileBasedSource<FailsafeElement<String, String>>> {
-    private final SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn;
-    private final Coder<FailsafeElement<String, String>> coder;
+      implements SerializableFunction<String, FileBasedSource<String>> {
+    private final SerializableFunction<GenericRecord, String> parseFn;
+    private final Coder<String> coder;
 
     CreateParseSourceFn(
-        SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn,
-        Coder<FailsafeElement<String, String>> coder) {
+        SerializableFunction<GenericRecord, String> parseFn,
+        Coder<String> coder) {
       this.parseFn = parseFn;
       this.coder = coder;
     }
 
     @Override
-    public FileBasedSource<FailsafeElement<String, String>> apply(String input) {
+    public FileBasedSource<String> apply(String input) {
       return AvroSource.from(input).withParseFn(parseFn, coder);
     }
   }
