@@ -16,7 +16,6 @@
 package com.google.cloud.teleport.v2.templates;
 
 import com.google.api.services.datastream.v1.model.SourceConfig;
-import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Options.RpcPriority;
 import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
@@ -36,6 +35,7 @@ import com.google.cloud.teleport.v2.spanner.migrations.utils.TransformationConte
 import com.google.cloud.teleport.v2.templates.DataStreamToSpanner.Options;
 import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
 import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
+import com.google.cloud.teleport.v2.transforms.FailsafeElementTransforms;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import com.google.common.base.Strings;
 import java.io.IOException;
@@ -44,19 +44,20 @@ import java.util.Arrays;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
-import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.ResolveOptions.StandardResolveOptions;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
-import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.StreamingOptions;
 import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
+import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.values.PCollection;
@@ -544,22 +545,16 @@ public class DataStreamToSpannerBatch {
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
     if (isRegularMode) {
       LOG.info("Regular Datastream flow");
-      PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
-          pipeline.apply(
-              new DataStreamIO(
-                  options.getStreamName(),
-                  options.getInputFilePattern(),
-                  options.getInputFileFormat(),
-                  options.getGcsPubSubSubscription(),
-                  options.getRfcStartDateTime())
-                  .withFileReadConcurrency(options.getFileReadConcurrency())
-                  .withDirectoryWatchDuration(
-                      Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
-      jsonRecords =
-          PCollectionList.of(datastreamJsonRecords)
-              .and(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+      jsonRecords = pipeline.apply(
+          new DataStreamIO(
+              options.getStreamName(),
+              options.getInputFilePattern(),
+              options.getInputFileFormat(),
+              options.getGcsPubSubSubscription(),
+              options.getRfcStartDateTime())
+              .withFileReadConcurrency(options.getFileReadConcurrency())
+              .withDirectoryWatchDuration(
+                  Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
     } else {
       LOG.info("DLQ retry flow");
       jsonRecords =
@@ -575,7 +570,17 @@ public class DataStreamToSpannerBatch {
         TransformationContextReader.getTransformationContext(
             options.getTransformationContextFilePath());
 
-    jsonRecords.apply(
+    PCollection<String> records = jsonRecords.apply("Convert Datastream FailsafeElement to String",
+        ParDo.of(
+            new DoFn<FailsafeElement<String, String>, String>() {
+              @ProcessElement
+              public void processElement(ProcessContext context) {
+                FailsafeElement<String, String> element = context.element();
+                context.output(element.getPayload());
+              }
+            }));
+
+    records.apply(
         "Datastream records as mutations", new DataStreamRecordsToSpannerMutations(transformationContext, ddlView, schema, options.getDatastreamSourceType(), spannerConfig));
     // Execute the pipeline and return the result.
     return pipeline.run();

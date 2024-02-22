@@ -185,7 +185,7 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
       PCollection<ReadableFile> datastreamFiles) {
     PCollection<FailsafeElement<String, String>> datastreamRecords;
 
-    FailsafeElementCoder coder =
+    FailsafeElementCoder<String, String> coder =
         FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
     if (this.fileType.equals(JSON_SUFFIX)) {
       datastreamRecords =

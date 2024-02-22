@@ -29,7 +29,7 @@ import org.apache.beam.sdk.values.PCollectionView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class DataStreamRecordsToSpannerMutationsDoFn extends DoFn<FailsafeElement<String, String>, Mutation>
+class DataStreamRecordsToSpannerMutationsDoFn extends DoFn<String, Mutation>
     implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(DataStreamRecordsToSpannerMutationsDoFn.class);
@@ -56,9 +56,8 @@ class DataStreamRecordsToSpannerMutationsDoFn extends DoFn<FailsafeElement<Strin
 
   @ProcessElement
   public void processElement(ProcessContext c) {
-    FailsafeElement<String, String> msg = c.element();
+    String msg = c.element();
     Ddl ddl = c.sideInput(ddlView);
-    boolean isRetryRecord = false;
     /*
      * Try Catch block to capture any exceptions that might occur while processing
      * DataStream events while writing to Cloud Spanner. All Exceptions that are caught
@@ -66,7 +65,7 @@ class DataStreamRecordsToSpannerMutationsDoFn extends DoFn<FailsafeElement<Strin
      */
     try {
 
-      JsonNode changeEvent = mapper.readTree(msg.getPayload());
+      JsonNode changeEvent = mapper.readTree(msg);
       if (!schema.isEmpty()) {
         verifyTableInSession(changeEvent.get(EVENT_TABLE_NAME_KEY).asText());
         changeEvent = transformChangeEventViaSessionFile(changeEvent);

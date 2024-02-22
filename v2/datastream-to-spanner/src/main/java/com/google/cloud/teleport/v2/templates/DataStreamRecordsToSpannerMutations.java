@@ -4,7 +4,6 @@ import com.google.cloud.spanner.Mutation;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.TransformationContext;
-import com.google.cloud.teleport.v2.values.FailsafeElement;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
@@ -16,7 +15,7 @@ import org.apache.beam.sdk.values.PCollectionView;
 import org.joda.time.Duration;
 
 public class DataStreamRecordsToSpannerMutations
-    extends PTransform<PCollection<FailsafeElement<String, String>>, SpannerWriteResult> {
+    extends PTransform<PCollection<String>, SpannerWriteResult> {
 
   private final TransformationContext transformationContext;
   private final PCollectionView<Ddl> ddlView;
@@ -33,8 +32,9 @@ public class DataStreamRecordsToSpannerMutations
   }
 
   @Override
-  public SpannerWriteResult expand(PCollection<FailsafeElement<String, String>> datastreamJsonRecords) {
-    PCollection<Mutation> spannerMutations = datastreamJsonRecords.apply("Convert Datastream record to Spanner mutation",
+  public SpannerWriteResult expand(PCollection<String> datastreamJsonRecords) {
+    PCollection<Mutation> spannerMutations = datastreamJsonRecords
+        .apply("Convert Datastream record to Spanner mutation",
         ParDo.of(new DataStreamRecordsToSpannerMutationsDoFn(transformationContext, ddlView, schema, sourceType))
             .withSideInputs(ddlView)).setCoder(SerializableCoder.of(Mutation.class));
 
