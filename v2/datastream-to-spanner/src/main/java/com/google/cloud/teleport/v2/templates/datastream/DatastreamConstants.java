@@ -55,6 +55,8 @@ public class DatastreamConstants {
   /* The key for the schema name in the event json */
   public static final String EVENT_SCHEMA_KEY = "_metadata_schema";
 
+  public static final String EVENT_STREAM = "_metadata_stream";
+
   /* The key for the table name in the event json */
   public static final String EVENT_TABLE_NAME_KEY = "_metadata_table";
 

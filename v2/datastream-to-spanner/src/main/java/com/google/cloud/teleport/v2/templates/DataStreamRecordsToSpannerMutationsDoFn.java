@@ -1,5 +1,6 @@
 package com.google.cloud.teleport.v2.templates;
 
+import static com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants.EVENT_STREAM;
 import static com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants.EVENT_SCHEMA_KEY;
 import static com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants.EVENT_TABLE_NAME_KEY;
 import static com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants.EVENT_UUID_KEY;
@@ -21,7 +22,6 @@ import com.google.cloud.teleport.v2.spanner.migrations.schema.SyntheticPKey;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.TransformationContext;
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventContext;
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventContextFactory;
-import com.google.cloud.teleport.v2.values.FailsafeElement;
 import java.io.Serializable;
 import java.util.Map;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -187,7 +187,8 @@ class DataStreamRecordsToSpannerMutationsDoFn extends DoFn<String, Mutation>
     }
     Map<String, String> schemaToShardId = transformationContext.getSchemaToShardId();
     String schemaName = changeEvent.get(EVENT_SCHEMA_KEY).asText();
-    String shardId = schemaToShardId.get(schemaName);
+    String streamName = changeEvent.get(EVENT_STREAM).asText();
+    String shardId = schemaToShardId.get(schemaName).concat(streamName);
     ((ObjectNode) changeEvent).put(shardIdColDef.getName(), shardId);
     return changeEvent;
   }
