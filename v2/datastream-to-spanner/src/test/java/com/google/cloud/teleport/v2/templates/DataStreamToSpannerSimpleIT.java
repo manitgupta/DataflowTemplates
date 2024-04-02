@@ -59,9 +59,6 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
   private static final String TABLE1 = "Users";
   private static final String TABLE2 = "Movie";
 
-  private static final String SESSION_FILE_RESOURCE =
-      "DataStreamToSpannerSimpleIT/mysql-session.json";
-
   private static final String SPANNER_DDL_RESOURCE =
       "DataStreamToSpannerSimpleIT/spanner-schema.sql";
 
@@ -89,7 +86,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
         jobInfo =
             launchDataflowJob(
                 getClass().getSimpleName(),
-                SESSION_FILE_RESOURCE,
+                null,
                 null,
                 "SimpleIT",
                 spannerResourceManager,
@@ -243,7 +240,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
     Map<String, Object> row1 = new HashMap<>();
     row1.put("id", 1);
     row1.put("name", "Tester Kumar");
-    row1.put("age_spanner", 30);
+    row1.put("age", 30);
     row1.put("subscribed", false);
     row1.put("plan", "A");
     row1.put("startDate", Date.parseDate("2023-01-01"));
@@ -251,7 +248,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
     Map<String, Object> row2 = new HashMap<>();
     row2.put("id", 3);
     row2.put("name", "Tester Gupta");
-    row2.put("age_spanner", 50);
+    row2.put("age", 50);
     row2.put("subscribed", false);
     row2.put("plan", "Z");
     row2.put("startDate", Date.parseDate("2023-06-07"));
@@ -259,7 +256,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
     Map<String, Object> row3 = new HashMap<>();
     row3.put("id", 4);
     row3.put("name", "Tester");
-    row3.put("age_spanner", 38);
+    row3.put("age", 38);
     row3.put("subscribed", true);
     row3.put("plan", "D");
     row3.put("startDate", Date.parseDate("2023-09-10"));
