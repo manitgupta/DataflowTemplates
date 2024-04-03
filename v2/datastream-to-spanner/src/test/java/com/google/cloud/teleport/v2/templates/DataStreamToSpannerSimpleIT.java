@@ -20,6 +20,7 @@ import static org.apache.beam.it.truthmatchers.PipelineAsserts.assertThatResult;
 import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
+import com.google.cloud.teleport.metadata.DirectRunnerTest;
 import com.google.cloud.teleport.metadata.SkipDirectRunnerTest;
 import com.google.cloud.teleport.metadata.TemplateIntegrationTest;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** A Simple Integration test for {@link DataStreamToSpanner} Flex template. */
-@Category({TemplateIntegrationTest.class, SkipDirectRunnerTest.class})
+@Category({TemplateIntegrationTest.class})
 @TemplateIntegrationTest(DataStreamToSpanner.class)
 @RunWith(JUnit4.class)
 public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
@@ -114,6 +115,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
   }
 
   @Test
+  @Category(DirectRunnerTest.class)
   public void migrationTestWithUpdatesAndDeletes() {
     // Construct a ChainedConditionCheck with 4 stages.
     // 1. Send initial wave of events
@@ -156,6 +158,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
   }
 
   @Test
+  @Category(DirectRunnerTest.class)
   public void migrationTestWithInsertsOnly() {
     // Construct a ChainedConditionCheck with 4 stages.
     // 1. Send initial wave of events
@@ -187,6 +190,7 @@ public class DataStreamToSpannerSimpleIT extends DataStreamToSpannerITBase {
   }
 
   @Test
+  @Category(DirectRunnerTest.class)
   public void interleavedAndFKAndIndexTest() {
     ChainedConditionCheck conditionCheck =
         ChainedConditionCheck.builder(
