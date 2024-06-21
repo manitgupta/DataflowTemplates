@@ -223,7 +223,7 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
                           new ReadFileRangesFn.ReadFileRangesFnExceptionHandler())))
               .setCoder(coder);
     }
-    return datastreamRecords.apply("Reshuffle", Reshuffle.viaRandomKey());
+    return datastreamRecords;
   }
 
   private static class CreateParseSourceFn

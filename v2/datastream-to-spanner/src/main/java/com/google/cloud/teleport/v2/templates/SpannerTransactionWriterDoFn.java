@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Options;
 import com.google.cloud.spanner.SpannerException;
+import com.google.cloud.spanner.TransactionContext;
 import com.google.cloud.spanner.TransactionRunner.TransactionCallable;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.exceptions.ChangeEventConvertorException;
@@ -169,23 +170,26 @@ class SpannerTransactionWriterDoFn extends DoFn<FailsafeElement<String, String>,
           .run(
               (TransactionCallable<Void>)
                   transaction -> {
+                    try (TransactionContext transactionContext = transaction) {
+                      // Sequence information for the last change event.
+                      ChangeEventSequence previousChangeEventSequence =
+                          ChangeEventSequenceFactory.createChangeEventSequenceFromShadowTable(
+                              transactionContext, changeEventContext);
 
-                    // Sequence information for the last change event.
-                    ChangeEventSequence previousChangeEventSequence =
-                        ChangeEventSequenceFactory.createChangeEventSequenceFromShadowTable(
-                            transaction, changeEventContext);
+                      /* There was a previous event recorded with a greater sequence information
+                       * than current. Hence, skip the current event.
+                       */
+                      if (previousChangeEventSequence != null
+                          && previousChangeEventSequence.compareTo(currentChangeEventSequence)
+                              >= 0) {
+                        return null;
+                      }
 
-                    /* There was a previous event recorded with a greater sequence information
-                     * than current. Hence, skip the current event.
-                     */
-                    if (previousChangeEventSequence != null
-                        && previousChangeEventSequence.compareTo(currentChangeEventSequence) >= 0) {
+                      // Apply shadow and data table mutations.
+                      transactionContext.buffer(changeEventContext.getMutations());
+
                       return null;
                     }
-
-                    // Apply shadow and data table mutations.
-                    transaction.buffer(changeEventContext.getMutations());
-                    return null;
                   });
       com.google.cloud.Timestamp timestamp = com.google.cloud.Timestamp.now();
       c.output(timestamp);

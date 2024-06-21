@@ -23,6 +23,7 @@ import static com.google.cloud.teleport.v2.templates.datastream.DatastreamConsta
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.exceptions.InvalidTransformationException;
@@ -156,6 +157,11 @@ public abstract class ChangeEventTransformerDoFn
         schema().verifyTableInSession(changeEvent.get(EVENT_TABLE_NAME_KEY).asText());
         changeEvent = changeEventSessionConvertor.transformChangeEventViaSessionFile(changeEvent);
       }
+
+      ((ObjectNode) changeEvent)
+          .put(
+              "migration_shard_id",
+              changeEvent.get("_metadata_stream") + "_" + changeEvent.get("_metadata_schema"));
 
       changeEvent =
           changeEventSessionConvertor.transformChangeEventData(
