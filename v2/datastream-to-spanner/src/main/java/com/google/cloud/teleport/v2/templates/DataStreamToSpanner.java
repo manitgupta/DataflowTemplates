@@ -628,7 +628,10 @@ public class DataStreamToSpanner {
       jsonRecords =
           PCollectionList.of(dlqJsonRecords)
               .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+              .apply(
+                  "Reshuffle",
+                  Reshuffle.<FailsafeElement<String, String>>viaRandomKey()
+                      .withNumBuckets(2500000));
     }
     /*
      * Stage 2: Transform records
@@ -728,8 +731,7 @@ public class DataStreamToSpanner {
         PCollectionList.of(dlqErrorRecords)
             .and(spannerWriteResults.permanentErrors())
             .and(transformedRecords.get(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))
-            .apply(Flatten.pCollections())
-            .apply("Reshuffle", Reshuffle.viaRandomKey());
+            .apply(Flatten.pCollections());
     // increment the metrics
     permanentErrors
         .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
