@@ -26,10 +26,12 @@ public class SchemaOverridesParser implements Serializable {
     if (userOptionOverrides.containsKey("columnOverrides")) {
       parseColumnMapping(userOptionOverrides.get("columnOverrides"));
     }
+    validateMapping();
   }
 
   /**
-   * Gets the spanner table name given the source table name
+   * Gets the spanner table name given the source table name, or source table name if no override is
+   * configured.
    *
    * @param sourceTableName The source table name
    * @return The overridden spanner table name
@@ -39,7 +41,8 @@ public class SchemaOverridesParser implements Serializable {
   }
 
   /**
-   * Gets the spanner column name given the source table name
+   * Gets the spanner column name given the source table name, or the source column name if override
+   * is configured.
    *
    * @param sourceTableName the source table name for which column name is overridden
    * @param sourceColumnName the source column name being overridden
@@ -118,5 +121,25 @@ public class SchemaOverridesParser implements Serializable {
         }
       }
     }
+  }
+
+  private void validateMapping() {
+    columnNameOverrides.keySet().forEach(sourceKey -> {
+      String[] sourceTableColumn = sourceKey.split("\\.");
+      String spTableFromColumn = columnNameOverrides.get(sourceKey).getLeft();
+      //if both column and table overrides have been specified and they are
+      //inconsistent with each other.
+      if (!spTableFromColumn.equals(tableNameOverrides.get(sourceTableColumn[0]))
+          && !getTableOverrideOrDefault(sourceTableColumn[0]).equals(sourceTableColumn[0])) {
+        throw new IllegalArgumentException(String.format(
+            "tableOverrides and schemaOverrides conflict with each other, %s.%s in source is mapped "
+                + "to %s.%s in Spanner but tableOverrides specifies the mapping of "
+                + "%s table to %s table in Spanner",
+            sourceTableColumn[0], sourceTableColumn[1],
+            columnNameOverrides.get(sourceKey).getLeft(),
+            columnNameOverrides.get(sourceKey).getRight(), sourceTableColumn[0],
+            tableNameOverrides.get(sourceTableColumn[0])));
+      }
+    });
   }
 }

@@ -16,6 +16,8 @@
 package com.google.cloud.teleport.plugin.model;
 
 import com.google.cloud.teleport.metadata.TemplateParameter;
+import com.google.cloud.teleport.metadata.TemplateParameter.SpannerColumnOverrides;
+import com.google.cloud.teleport.metadata.TemplateParameter.SpannerTableOverrides;
 import com.google.cloud.teleport.metadata.util.MetadataUtils;
 import java.lang.annotation.Annotation;
 import java.util.Arrays;
@@ -620,6 +622,40 @@ public class ImageSpecParameter {
         this.setOptional(kafkaWriteTopic.optional());
         this.setHiddenUi(kafkaWriteTopic.hiddenUi());
         this.setParamType(ImageSpecParameterType.KAFKA_WRITE_TOPIC);
+        break;
+      case "SpannerTableOverrides":
+        SpannerTableOverrides spannerTableOverrides =
+            (SpannerTableOverrides) parameterAnnotation;
+        if (!spannerTableOverrides.name().isEmpty()) {
+          this.setName(spannerTableOverrides.name());
+        }
+        processDescriptions(
+            spannerTableOverrides.groupName(),
+            spannerTableOverrides.description(),
+            spannerTableOverrides.helpText(),
+            spannerTableOverrides.example());
+        this.setParentName(spannerTableOverrides.parentName());
+        this.setParentTriggerValues(spannerTableOverrides.parentTriggerValues());
+        this.setOptional(spannerTableOverrides.optional());
+        this.setHiddenUi(spannerTableOverrides.hiddenUi());
+        this.setParamType(ImageSpecParameterType.SPANNER_TABLE_OVERRIDES);
+        break;
+      case "SpannerColumnOverrides":
+        SpannerColumnOverrides spannerColumnOverrides =
+            (SpannerColumnOverrides) parameterAnnotation;
+        if (!spannerColumnOverrides.name().isEmpty()) {
+          this.setName(spannerColumnOverrides.name());
+        }
+        processDescriptions(
+            spannerColumnOverrides.groupName(),
+            spannerColumnOverrides.description(),
+            spannerColumnOverrides.helpText(),
+            spannerColumnOverrides.example());
+        this.setParentName(spannerColumnOverrides.parentName());
+        this.setParentTriggerValues(spannerColumnOverrides.parentTriggerValues());
+        this.setOptional(spannerColumnOverrides.optional());
+        this.setHiddenUi(spannerColumnOverrides.hiddenUi());
+        this.setParamType(ImageSpecParameterType.SPANNER_COLUMN_OVERRIDES);
         break;
       default:
         throw new IllegalArgumentException("Invalid type " + parameterAnnotation);

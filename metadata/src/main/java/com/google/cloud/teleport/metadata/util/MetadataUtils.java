@@ -57,7 +57,9 @@ public final class MetadataUtils {
         TemplateParameter.ServiceAccount.class,
         TemplateParameter.Text.class,
         TemplateParameter.WorkerRegion.class,
-        TemplateParameter.WorkerZone.class
+        TemplateParameter.WorkerZone.class,
+        TemplateParameter.SpannerTableOverrides.class,
+        TemplateParameter.SpannerColumnOverrides.class
       };
   public static final String BIGQUERY_TABLE_PATTERN = ".+[\\.:].+\\..+";
 
@@ -243,6 +245,14 @@ public final class MetadataUtils {
         TemplateParameter.WorkerZone workerZoneParam =
             (TemplateParameter.WorkerZone) parameterAnnotation;
         return List.of("[a-z]+-[a-z]+[0-9]+-[a-z]");
+      case "SpannerTableOverrides":
+        TemplateParameter.SpannerTableOverrides spannerTableOverrides =
+            (TemplateParameter.SpannerTableOverrides) parameterAnnotation;
+        return List.of("^\\[(\\s*\\{\\s*[\\w.]+\\s*,\\s*[\\w.]+\\s*\\}\\s*(?:,\\s*)?)*\\]$");
+      case "SpannerColumnOverrides":
+        TemplateParameter.SpannerColumnOverrides spannerColumnOverrides =
+            (TemplateParameter.SpannerColumnOverrides) parameterAnnotation;
+        return List.of("^\\[(\\s*\\{\\s*[\\w.]+\\.[\\w.]+\\s*,\\s*[\\w.]+\\.[\\w.]+\\s*\\}\\s*(?:,\\s*)?)*\\]$");
       default:
         return null;
     }

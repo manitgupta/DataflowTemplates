@@ -32,6 +32,7 @@ import com.google.cloud.teleport.v2.spanner.migrations.constants.Constants;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ColumnPK;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.NameAndCols;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaOverridesParser;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SourceColumnDefinition;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SourceColumnType;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SourceTable;
@@ -399,5 +400,53 @@ public class ChangeEventSessionConvertorTest {
             new ColumnPK[] {new ColumnPK("c6", 1), new ColumnPK("c5", 2)},
             "c6"));
     return spSchema;
+  }
+
+  @Test
+  public void transformChangeEventViaOverridesForTablesTest() {
+    Map<String, String> userOptionsOverrides = new HashMap<>();
+    userOptionsOverrides.put("tableOverrides", "[{Singers, Vocalists}, {Albums, Records}]");
+    SchemaOverridesParser schemaOverridesParser = new SchemaOverridesParser(userOptionsOverrides);
+    ChangeEventSessionConvertor changeEventSessionConvertor =
+        new ChangeEventSessionConvertor(null, schemaOverridesParser, null, "mysql", false);
+
+    JSONObject changeEvent1 = new JSONObject();
+    changeEvent1.put(Constants.EVENT_TABLE_NAME_KEY, "Singers");
+    JsonNode ce1 = parseChangeEvent(changeEvent1.toString());
+    JsonNode actualEvent1 = changeEventSessionConvertor.transformChangeEventViaOverrides(ce1);
+
+    JSONObject changeEvent2 = new JSONObject();
+    changeEvent2.put(Constants.EVENT_TABLE_NAME_KEY, "Albums");
+    JsonNode ce2 = parseChangeEvent(changeEvent2.toString());
+    JsonNode actualEvent2 = changeEventSessionConvertor.transformChangeEventViaOverrides(ce2);
+
+    assertEquals("Vocalists", actualEvent1.get(Constants.EVENT_TABLE_NAME_KEY).asText());
+    assertEquals("Records", actualEvent2.get(Constants.EVENT_TABLE_NAME_KEY).asText());
+  }
+
+  @Test
+  public void transformChangeEventViaOverridesForColumnsTest() {
+    Map<String, String> userOptionsOverrides = new HashMap<>();
+    userOptionsOverrides.put("columnOverrides", "[{Singers.SingerName, Vocalists.TalentName}, {Albums.AlbumName, Albums.RecordName}]");
+    SchemaOverridesParser schemaOverridesParser = new SchemaOverridesParser(userOptionsOverrides);
+    ChangeEventSessionConvertor changeEventSessionConvertor =
+        new ChangeEventSessionConvertor(null, schemaOverridesParser, null, "mysql", false);
+
+    JSONObject changeEvent1 = new JSONObject();
+    changeEvent1.put(Constants.EVENT_TABLE_NAME_KEY, "Singers");
+    changeEvent1.put("SingerName", "A");
+    JsonNode ce1 = parseChangeEvent(changeEvent1.toString());
+    JsonNode actualEvent1 = changeEventSessionConvertor.transformChangeEventViaOverrides(ce1);
+
+    JSONObject changeEvent2 = new JSONObject();
+    changeEvent2.put(Constants.EVENT_TABLE_NAME_KEY, "Albums");
+    changeEvent2.put("AlbumName", "B");
+    JsonNode ce2 = parseChangeEvent(changeEvent2.toString());
+    JsonNode actualEvent2 = changeEventSessionConvertor.transformChangeEventViaOverrides(ce2);
+
+    assertEquals("Vocalists", actualEvent1.get(Constants.EVENT_TABLE_NAME_KEY).asText());
+    assertEquals("A", actualEvent1.get("TalentName").asText());
+    assertEquals("Albums", actualEvent2.get(Constants.EVENT_TABLE_NAME_KEY).asText());
+    assertEquals("B", actualEvent2.get("RecordName").asText());
   }
 }

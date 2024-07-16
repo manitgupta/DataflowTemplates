@@ -178,7 +178,8 @@ public class ChangeEventSessionConvertor {
   public JsonNode transformChangeEventViaOverrides(JsonNode changeEvent) {
     String sourceTableName = changeEvent.get(EVENT_TABLE_NAME_KEY).asText();
     String spTableName = schemaOverridesParser.getTableOverrideOrDefault(sourceTableName);
-    //Replace the source table name with the overridden spanner table name.
+    //Replace the source table name with the overridden spanner table name if the override
+    //is specified at the table level.
     ((ObjectNode) changeEvent).put(EVENT_TABLE_NAME_KEY, spTableName);
     //Get the list of sourceColumnNames from the event
     Iterator<String> sourceFieldNames = changeEvent.fieldNames();
@@ -188,8 +189,9 @@ public class ChangeEventSessionConvertor {
             .filter(f -> !f.startsWith(EVENT_METADATA_KEY_PREFIX))
             .collect(Collectors.toList());
     sourceColumnNames.forEach( sourceColumnName -> {
-      Pair<String, String> spannerColumn = schemaOverridesParser.getColumnOverrideOrDefault(sourceTableName, sourceColumnName);
-      String spColumnName = spannerColumn.getRight();
+      Pair<String, String> spannerTableColumn = schemaOverridesParser.getColumnOverrideOrDefault(sourceTableName, sourceColumnName);
+      String spColumnName = spannerTableColumn.getRight();
+      ((ObjectNode) changeEvent).put(EVENT_TABLE_NAME_KEY, spannerTableColumn.getLeft());
       ((ObjectNode) changeEvent).set(spColumnName, changeEvent.get(sourceColumnName));
       ((ObjectNode) changeEvent).remove(sourceColumnName);
     });

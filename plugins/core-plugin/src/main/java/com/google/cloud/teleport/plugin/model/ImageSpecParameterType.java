@@ -76,5 +76,11 @@ public enum ImageSpecParameterType {
   KAFKA_WRITE_TOPIC,
 
   /** Kafka Read Topic parameter. */
-  KAFKA_READ_TOPIC;
+  KAFKA_READ_TOPIC,
+
+  /** Spanner table overrides parameter. */
+  SPANNER_TABLE_OVERRIDES,
+
+  /** Spanner column overrides parameter. */
+  SPANNER_COLUMN_OVERRIDES;
 }

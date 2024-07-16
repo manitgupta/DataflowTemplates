@@ -470,10 +470,11 @@ public class DataStreamToSpanner {
 
     void setFilteredEventsDirectory(String value);
 
-    @TemplateParameter.Text(
+    @TemplateParameter.SpannerTableOverrides(
         order = 29,
         optional = true,
         description = "Table name overrides from source to spanner",
+        example = "[{Singers, Vocalists}, {Albums, Records}]",
         helpText =
             "These are the table name overrides from source to spanner. They are written in the"
                 + "following format: [{Singers, Vocalists}, {Albums, Records}]"
@@ -483,10 +484,11 @@ public class DataStreamToSpanner {
 
     void setTableOverrides(String value);
 
-    @TemplateParameter.Text(
+    @TemplateParameter.SpannerColumnOverrides(
         order = 30,
         optional = true,
         description = "Column name overrides from source to spanner",
+        example = "[{Singers.SingerName, Vocalists.TalentName}, {Albums.AlbumName, Records.RecordName}]",
         helpText =
             "These are the column name overrides from source to spanner. They are written in the"
                 + "following format: [{Singers.SingerName, Vocalists.TalentName}, {Albums.AlbumName, Records.RecordName}]"
