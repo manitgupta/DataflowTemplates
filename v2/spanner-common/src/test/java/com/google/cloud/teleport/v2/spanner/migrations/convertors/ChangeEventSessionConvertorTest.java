@@ -85,7 +85,7 @@ public class ChangeEventSessionConvertorTest {
   public void transformChangeEventViaSessionFileNamesTest() {
     Schema schema = getSchemaObject();
     ChangeEventSessionConvertor changeEventSessionConvertor =
-        new ChangeEventSessionConvertor(schema, new TransformationContext(), "", false);
+        new ChangeEventSessionConvertor(schema, null, new TransformationContext(), "", false);
 
     JSONObject changeEvent = new JSONObject();
     changeEvent.put("product_id", "A");
@@ -109,7 +109,7 @@ public class ChangeEventSessionConvertorTest {
   public void transformChangeEventViaSessionFileSynthPKTest() {
     Schema schema = getSchemaObject();
     ChangeEventSessionConvertor changeEventSessionConvertor =
-        new ChangeEventSessionConvertor(schema, new TransformationContext(), "", false);
+        new ChangeEventSessionConvertor(schema, null, new TransformationContext(), "", false);
 
     JSONObject changeEvent = new JSONObject();
     changeEvent.put("name", "A");
@@ -132,7 +132,7 @@ public class ChangeEventSessionConvertorTest {
   public void transformChangeEventDataTest() throws Exception {
     Schema schema = getSchemaObject();
     ChangeEventSessionConvertor changeEventSessionConvertor =
-        new ChangeEventSessionConvertor(schema, new TransformationContext(), "", true);
+        new ChangeEventSessionConvertor(schema, null, new TransformationContext(), "", true);
 
     JSONObject changeEvent = new JSONObject();
     changeEvent.put("first_name", "A");
@@ -301,7 +301,7 @@ public class ChangeEventSessionConvertorTest {
   public void shardedConfigDataTest() throws Exception {
     Schema schema = getSchemaObject();
     ChangeEventSessionConvertor changeEventSessionConvertor =
-        new ChangeEventSessionConvertor(schema, new TransformationContext(), "", true);
+        new ChangeEventSessionConvertor(schema, null, new TransformationContext(), "", true);
 
     JSONObject changeEvent = new JSONObject();
     changeEvent.put("first_name", "A");
@@ -326,7 +326,7 @@ public class ChangeEventSessionConvertorTest {
     Schema schema = getShardedSchemaObject();
     TransformationContext transformationContext = getTransformationContext();
     ChangeEventSessionConvertor changeEventSessionConvertor =
-        new ChangeEventSessionConvertor(schema, transformationContext, "mysql", false);
+        new ChangeEventSessionConvertor(schema, null, transformationContext, "mysql", false);
 
     JSONObject changeEvent = new JSONObject();
     changeEvent.put("name", "A");

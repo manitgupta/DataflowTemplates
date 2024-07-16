@@ -30,6 +30,7 @@ import com.google.cloud.teleport.v2.datastream.sources.DataStreamIO;
 import com.google.cloud.teleport.v2.datastream.utils.DataStreamClient;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaOverridesParser;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.CustomTransformation;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.TransformationContext;
 import com.google.cloud.teleport.v2.spanner.migrations.utils.SessionFileReader;
@@ -45,6 +46,8 @@ import com.google.common.base.Strings;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
@@ -466,6 +469,32 @@ public class DataStreamToSpanner {
     String getFilteredEventsDirectory();
 
     void setFilteredEventsDirectory(String value);
+
+    @TemplateParameter.Text(
+        order = 29,
+        optional = true,
+        description = "Table name overrides from source to spanner",
+        helpText =
+            "These are the table name overrides from source to spanner. They are written in the"
+                + "following format: [{Singers, Vocalists}, {Albums, Records}]"
+                + "This example shows that the 'Singers' table at source is mapped to 'Vocalists' table in spanner.")
+    @Default.String("")
+    String getTableOverrides();
+
+    void setTableOverrides(String value);
+
+    @TemplateParameter.Text(
+        order = 30,
+        optional = true,
+        description = "Column name overrides from source to spanner",
+        helpText =
+            "These are the column name overrides from source to spanner. They are written in the"
+                + "following format: [{Singers.SingerName, Vocalists.TalentName}, {Albums.AlbumName, Records.RecordName}]"
+                + "This example shows the column 'SingerName' in table 'Singers' at source is mapped to 'TalentName' column in 'Vocalists' table in spanner.")
+    @Default.String("")
+    String getColumnOverrides();
+
+    void setColumnOverrides(String value);
   }
 
   private static void validateSourceType(Options options) {
@@ -642,9 +671,12 @@ public class DataStreamToSpanner {
             .setCustomParameters(options.getTransformationCustomParameters())
             .build();
 
+    // Create the overrides mapping.
+    SchemaOverridesParser schemaOverridesParser = configureSchemaOverrides(options);
     ChangeEventTransformerDoFn changeEventTransformerDoFn =
         ChangeEventTransformerDoFn.create(
             schema,
+            schemaOverridesParser,
             transformationContext,
             options.getDatastreamSourceType(),
             customTransformation,
@@ -766,5 +798,20 @@ public class DataStreamToSpanner {
       LOG.info("Dead-letter retry directory: {}", retryDlqUri);
       return DeadLetterQueueManager.create(dlqDirectory, retryDlqUri, 0);
     }
+  }
+
+  private static SchemaOverridesParser configureSchemaOverrides(Options options) {
+    Map<String, String> userOptionsOverrides = new HashMap<>();
+    SchemaOverridesParser schemaOverridesParser = null;
+    if (!options.getTableOverrides().isEmpty()) {
+      userOptionsOverrides.put("tableOverrides", options.getTableOverrides());
+    }
+    if (!options.getColumnOverrides().isEmpty()) {
+      userOptionsOverrides.put("columnOverrides", options.getColumnOverrides());
+    }
+    if (userOptionsOverrides.keySet().size() != 0) {
+      schemaOverridesParser = new SchemaOverridesParser(userOptionsOverrides);
+    }
+    return schemaOverridesParser;
   }
 }
