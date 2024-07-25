@@ -26,7 +26,9 @@ import com.google.cloud.teleport.v2.cdc.dlq.PubSubNotifiedDlqIO;
 import com.google.cloud.teleport.v2.cdc.dlq.StringDeadLetterQueueSanitizer;
 import com.google.cloud.teleport.v2.coders.FailsafeElementCoder;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
-import com.google.cloud.teleport.v2.datastream.sources.DataStreamIO;
+import com.google.cloud.teleport.v2.datastream.sources.DataStreamFileIO;
+import com.google.cloud.teleport.v2.datastream.sources.ReadFileRangesFn;
+import com.google.cloud.teleport.v2.datastream.transforms.FormatDatastreamRecordToJson;
 import com.google.cloud.teleport.v2.datastream.utils.DataStreamClient;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
@@ -45,13 +47,20 @@ import com.google.common.base.Strings;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
+import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.extensions.avro.io.AvroSource;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
+import org.apache.beam.sdk.io.FileBasedSource;
+import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.io.fs.MatchResult.Metadata;
 import org.apache.beam.sdk.io.fs.ResolveOptions.StandardResolveOptions;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.options.Default;
@@ -63,6 +72,7 @@ import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
 import org.apache.beam.sdk.transforms.windowing.Window;
@@ -604,28 +614,39 @@ public class DataStreamToSpanner {
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
     if (isRegularMode) {
       LOG.info("Regular Datastream flow");
-      PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
-          pipeline.apply(
-              new DataStreamIO(
-                      options.getStreamName(),
-                      options.getInputFilePattern(),
-                      options.getInputFileFormat(),
-                      options.getGcsPubSubSubscription(),
-                      options.getRfcStartDateTime())
-                  .withFileReadConcurrency(options.getFileReadConcurrency())
-                  .withDirectoryWatchDuration(
-                      Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
+      //Read the pubsub messages and shuffle them across workers.
+      PCollection<Metadata> pubsubMessages =
+          pipeline.apply("Read Pubsub Messages", new DataStreamFileIO(
+              options.getGcsPubSubSubscription()))
+              .apply(Reshuffle.viaRandomKey()); //distribute pubsub messages to multiple workers
+
+      SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn =
+          FormatDatastreamRecordToJson.create()
+              .withStreamName(options.getStreamName())
+              .withRenameColumnValues(new HashMap<>())
+              .withHashRowId(false)
+              .withLowercaseSourceColumns(false);
+
+      FailsafeElementCoder<String, String> coder =
+          FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+
+      PCollection<FailsafeElement<String, String>> datastreamJsonRecords = pubsubMessages.apply("Read Datastream files", FileIO.readMatches()) //Read the file
+          .apply("Parse Datastream records", //Parse the rows in the file
+          ParDo.of(
+              new ReadFileRangesFn<FailsafeElement<String, String>>(
+                  new CreateParseSourceFn(parseFn, coder),
+                  new ReadFileRangesFn.ReadFileRangesFnExceptionHandler())))
+          .setCoder(coder);
+
       jsonRecords =
           PCollectionList.of(datastreamJsonRecords)
               .and(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+              .apply(Flatten.pCollections()); //no need to reshuffle
     } else {
       LOG.info("DLQ retry flow");
       jsonRecords =
           PCollectionList.of(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
+              .apply(Flatten.pCollections());
     }
     /*
      * Stage 2: Transform records
@@ -728,8 +749,7 @@ public class DataStreamToSpanner {
         PCollectionList.of(dlqErrorRecords)
             .and(spannerWriteResults.permanentErrors())
             .and(transformedRecords.get(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))
-            .apply(Flatten.pCollections())
-            .apply("Reshuffle", Reshuffle.viaRandomKey());
+            .apply(Flatten.pCollections());
     // increment the metrics
     permanentErrors
         .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
@@ -768,6 +788,24 @@ public class DataStreamToSpanner {
               .toString();
       LOG.info("Dead-letter retry directory: {}", retryDlqUri);
       return DeadLetterQueueManager.create(dlqDirectory, retryDlqUri, 0);
+    }
+  }
+
+  private static class CreateParseSourceFn
+      implements SerializableFunction<String, FileBasedSource<FailsafeElement<String, String>>> {
+    private final SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn;
+    private final Coder<FailsafeElement<String, String>> coder;
+
+    CreateParseSourceFn(
+        SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn,
+        Coder<FailsafeElement<String, String>> coder) {
+      this.parseFn = parseFn;
+      this.coder = coder;
+    }
+
+    @Override
+    public FileBasedSource<FailsafeElement<String, String>> apply(String input) {
+      return AvroSource.from(input).withParseFn(parseFn, coder);
     }
   }
 }
