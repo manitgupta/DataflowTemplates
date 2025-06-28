@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.utils.ChangeEventUtils;
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventConvertor;
+import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import java.io.Serializable;
 import java.util.List;
@@ -48,6 +49,7 @@ public class DatastreamRecordToHashDoFn
       ChangeEventConvertor.convertChangeEventColumnKeysToLowerCase(changeEvent);
       List<String> changeEventKeys = ChangeEventUtils.getEventColumnKeys(changeEvent);
       StringBuilder sb = new StringBuilder();
+      sb.append(changeEvent.get(DatastreamConstants.EVENT_TABLE_NAME_KEY).asText());
       for (String key : changeEventKeys) {
         JsonNode node = changeEvent.get(key);
         if (!node.asText().equals("null")) {

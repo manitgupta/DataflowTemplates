@@ -71,13 +71,13 @@ public class SpannerRecordReader
   public abstract static class Result implements POutput {
 
     private static SpannerRecordReader.Result create(
-        PCollection<Struct> spannerRecords, PCollection<FailsafeElement<String, String>> errors) {
+        PCollection<SpannerRecord> spannerRecords, PCollection<FailsafeElement<String, String>> errors) {
       Preconditions.checkNotNull(spannerRecords);
       Preconditions.checkNotNull(errors);
       return new AutoValue_SpannerRecordReader_Result(spannerRecords, errors);
     }
 
-    public abstract PCollection<Struct> spannerRecords();
+    public abstract PCollection<SpannerRecord> spannerRecords();
 
     public abstract PCollection<FailsafeElement<String, String>> errors();
 

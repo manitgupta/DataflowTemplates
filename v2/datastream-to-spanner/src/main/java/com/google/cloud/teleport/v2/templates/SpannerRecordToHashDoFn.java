@@ -24,16 +24,18 @@ import org.apache.commons.codec.binary.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SpannerRecordToHashDoFn extends DoFn<Struct, KV<String, String>>
+public class SpannerRecordToHashDoFn extends DoFn<SpannerRecord, KV<String, String>>
     implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(SpannerRecordToHashDoFn.class);
 
   @ProcessElement
   public void processElement(ProcessContext c) {
-    Struct spannerStruct = c.element();
+    SpannerRecord spannerRecord = c.element();
+    Struct spannerStruct = spannerRecord.getSpannerRecord();
     int nCols = spannerStruct.getColumnCount();
     StringBuilder sbConcatCols = new StringBuilder();
+    sbConcatCols.append(spannerRecord.getTableName());
     for (int i = 0; i < nCols; i++) {
       Type colType = spannerStruct.getColumnType(i);
 

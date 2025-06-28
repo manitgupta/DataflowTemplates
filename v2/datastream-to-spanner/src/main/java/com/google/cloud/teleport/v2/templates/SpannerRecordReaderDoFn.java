@@ -37,7 +37,7 @@ import org.apache.beam.sdk.values.TupleTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SpannerRecordReaderDoFn extends DoFn<FailsafeElement<String, String>, Struct>
+public class SpannerRecordReaderDoFn extends DoFn<FailsafeElement<String, String>, SpannerRecord>
     implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(SpannerRecordReaderDoFn.class);
@@ -93,7 +93,8 @@ public class SpannerRecordReaderDoFn extends DoFn<FailsafeElement<String, String
                 changeEventKeys);
       }
       if (spannerRecord != null) {
-        c.output(spannerRecord);
+        SpannerRecord sR = new SpannerRecord(changeEvent.get(DatastreamConstants.EVENT_TABLE_NAME_KEY).asText(), spannerRecord);
+        c.output(sR);
       }
     } catch (Exception e) {
       LOG.error("Unhandled Exception in spanner record reader", e);
