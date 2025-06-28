@@ -18,6 +18,7 @@ package com.google.cloud.teleport.v2.templates.constants;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.TupleTag;
 
 /** Class to maintain all the constants used in the pipeline. */
@@ -45,10 +46,30 @@ public class DatastreamToSpannerConstants {
 
   public static final TupleTag<Struct> SPANNER_RECORDS = new TupleTag<Struct>() {};
 
+  public static final TupleTag<KV<String, Long>> MATCHED_RECORDS_TAG =
+      new TupleTag<KV<String, Long>>() {};
+  // source (jdbc) records by range
+  public static final TupleTag<KV<String, Long>> SOURCE_RECORDS_TAG =
+      new TupleTag<KV<String, Long>>() {};
+  // target (spanner) records by range
+  public static final TupleTag<KV<String, Long>> TARGET_RECORDS_TAG =
+      new TupleTag<KV<String, Long>>() {};
+  // unmatched spanner/target records by range
+  public static final TupleTag<KV<String, Long>> UNMATCHED_TARGET_RECORDS_TAG =
+      new TupleTag<KV<String, Long>>() {};
+  // unmatched source/jdbc records by range
+  public static final TupleTag<KV<String, Long>> UNMATCHED_SOURCE_RECORDS_TAG =
+      new TupleTag<KV<String, Long>>() {};
+
+  // unmatched spanner/target record *values* by range
+  public static final TupleTag<String> UNMATCHED_TARGET_RECORD_VALUES_TAG = new TupleTag<>() {};
+  // unmatched source/jdbc record *values* by range
+  public static final TupleTag<String> UNMATCHED_SOURCE_RECORD_VALUES_TAG = new TupleTag<>() {};
+
   public static final TupleTag<FailsafeElement<String, String>> SPANNER_READ_ERRORS =
       new TupleTag<FailsafeElement<String, String>>() {};
 
-  public static final TupleTag<String> JDBC_TAG = new TupleTag<>();
+  public static final TupleTag<String> SOURCE_TAG = new TupleTag<>();
   // spanner hash results from initial partitioned query
   public static final TupleTag<String> SPANNER_TAG = new TupleTag<>();
 

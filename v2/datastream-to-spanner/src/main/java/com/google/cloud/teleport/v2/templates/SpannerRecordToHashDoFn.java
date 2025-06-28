@@ -79,7 +79,7 @@ public class SpannerRecordToHashDoFn extends DoFn<Struct, KV<String, String>>
       } // switch
     } // for
     String hash = org.apache.commons.codec.digest.DigestUtils.sha256Hex(sbConcatCols.toString());
-    LOG.info("Spanner Hash = {} Spanner payload: {}", hash, sbConcatCols);
+    // LOG.info("Spanner Hash = {} Spanner payload: {}", hash, sbConcatCols);
     c.output(KV.of(hash, sbConcatCols.toString()));
   }
 }

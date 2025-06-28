@@ -84,7 +84,7 @@ public class SpannerRecordReaderDoFn extends DoFn<FailsafeElement<String, String
               /* convertNameToLowerCase= */ true);
 
       List<String> changeEventKeys = ChangeEventUtils.getEventColumnKeys(changeEvent);
-      Struct spannerRecord = Struct.newBuilder().build();
+      Struct spannerRecord;
       try (ReadContext readContext = spannerAccessor.getDatabaseClient().singleUse()) {
         spannerRecord =
             readContext.readRow(
@@ -92,9 +92,11 @@ public class SpannerRecordReaderDoFn extends DoFn<FailsafeElement<String, String
                 primaryKey,
                 changeEventKeys);
       }
-      c.output(spannerRecord);
+      if (spannerRecord != null) {
+        c.output(spannerRecord);
+      }
     } catch (Exception e) {
-      LOG.error("Unhandled Exception", e);
+      LOG.error("Unhandled Exception in spanner record reader", e);
       // Any other errors are considered severe and not retryable.
       outputWithErrorTag(c, msg, e, DatastreamToSpannerConstants.PERMANENT_ERROR_TAG);
     }

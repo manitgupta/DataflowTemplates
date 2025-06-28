@@ -12,22 +12,24 @@ import org.apache.beam.sdk.extensions.avro.io.AvroSource;
 import org.apache.beam.sdk.io.FileBasedSource;
 import org.apache.beam.sdk.io.FileIO;
 import org.apache.beam.sdk.io.FileIO.ReadableFile;
-import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DatastreamReader extends PTransform<PBegin, PCollection<FailsafeElement<String, String>>> {
 
+  private static final Logger LOG = LoggerFactory.getLogger(DatastreamReader.class);
   private String inputFilePattern;
-  private Boolean applyReshuffle = true;
   private String streamName;
   private Boolean lowercaseSourceColumns = false;
   private Boolean hashRowId = false;
   private Map<String, String> renameColumns = new HashMap<>();
+  PCollection<String> directories = null;
 
   public DatastreamReader(String streamName, String inputFilePattern) {
     this.streamName = streamName;
@@ -67,10 +69,7 @@ public class DatastreamReader extends PTransform<PBegin, PCollection<FailsafeEle
                           new CreateParseSourceFn(parseFn, coder),
                           new ReadFileRangesFn.ReadFileRangesFnExceptionHandler())))
               .setCoder(coder);
-
-    return applyReshuffle
-        ? datastreamRecords.apply("Reshuffle", Reshuffle.viaRandomKey())
-        : datastreamRecords;
+    return datastreamRecords.apply("Reshuffle", Reshuffle.viaRandomKey());
   }
 
   private static class CreateParseSourceFn
@@ -102,8 +101,7 @@ public class DatastreamReader extends PTransform<PBegin, PCollection<FailsafeEle
 
     public PCollection<ReadableFile> expandBatchReadPipeline(PBegin input) {
       return input
-          .apply("CreateFilePattern", Create.of(inputFilePattern))
-          .apply("MatchFiles", FileIO.matchAll())
+          .apply("MatchFiles", FileIO.match().filepattern(inputFilePattern + "**")) //wildcard to match everything inside the folder
           .apply("ReadFiles", FileIO.readMatches());
     }
   }

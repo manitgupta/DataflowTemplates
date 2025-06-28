@@ -58,6 +58,9 @@ import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.Flatten;
+import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
@@ -65,9 +68,11 @@ import org.apache.beam.sdk.transforms.join.CoGroupByKey;
 import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTagList;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -755,9 +760,87 @@ public class DataStreamToSpanner {
             .apply("Convert spanner records to hashes", ParDo.of(new SpannerRecordToHashDoFn()));
 
     PCollection<KV<String, CoGbkResult>> groupByResults =
-        KeyedPCollectionTuple.of(DatastreamToSpannerConstants.JDBC_TAG, sourceHashes)
+        KeyedPCollectionTuple.of(DatastreamToSpannerConstants.SOURCE_TAG, sourceHashes)
             .and(DatastreamToSpannerConstants.SPANNER_TAG, spannerHashes)
             .apply("Group by hash", CoGroupByKey.create());
+
+    PCollectionTuple countMatches =
+        groupByResults.apply(
+            "Count Matches",
+            ParDo.of(new CountMatchesDoFn())
+                .withOutputTags(
+                    DatastreamToSpannerConstants.MATCHED_RECORDS_TAG,
+                    TupleTagList.of(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG)
+                        .and(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG)
+                        .and(DatastreamToSpannerConstants.SOURCE_RECORDS_TAG)
+                        .and(DatastreamToSpannerConstants.TARGET_RECORDS_TAG)
+                        .and(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG)
+                        .and(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG)));
+
+    // Count the tagged results by range
+    PCollection<KV<String, Long>> matchedRecordCount =
+        countMatches
+            .get(DatastreamToSpannerConstants.MATCHED_RECORDS_TAG)
+            .apply("MatchedRecordCount", Count.perKey());
+
+    PCollection<KV<String, Long>> unmatchedTargetRecordCount =
+        countMatches
+            .get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG)
+            .apply("UnmatchedTargetRecordCount", Count.perKey());
+
+    PCollection<KV<String, Long>> unmatchedSourceCount =
+        countMatches
+            .get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG)
+            .apply("UnmatchedSourceRecordCount", Count.perKey());
+
+    PCollection<KV<String, Long>> sourceRecordCount =
+        countMatches
+            .get(DatastreamToSpannerConstants.SOURCE_RECORDS_TAG)
+            .apply("SourceRecordCount", Count.perKey());
+
+    PCollection<KV<String, Long>> targetRecordCount =
+        countMatches
+            .get(DatastreamToSpannerConstants.TARGET_RECORDS_TAG)
+            .apply("TargetRecordCount", Count.perKey());
+
+    PCollectionList<KV<String, Long>> pCollectionList =
+        PCollectionList.of(matchedRecordCount)
+            .and(unmatchedTargetRecordCount)
+            .and(unmatchedSourceCount)
+            .and(sourceRecordCount)
+            .and(targetRecordCount);
+
+    PCollection<KV<String, Long>> allCounts =
+        pCollectionList.apply("FlattenAllCounts", Flatten.pCollections());
+
+    allCounts.apply(
+        "PrintAllCounts",
+        MapElements.into(TypeDescriptors.voids()) // No output needed, just a side effect (printing)
+            .via(
+                (KV<String, Long> kv) -> {
+                  LOG.info("Counter: {}, Count: {}", kv.getKey(), kv.getValue());
+                  return null; // Return null because the output type is Void
+                }));
+
+    countMatches
+        .get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG)
+        .apply("PrintSourceUnmatchedRecords",
+            MapElements.into(TypeDescriptors.voids()) // No output needed, just a side effect (printing)
+                .via(
+                    (String sourceRecord) -> {
+                      LOG.info("Unmatched sourceRecord: {}", sourceRecord);
+                      return null; // Return null because the output type is Void
+                    }));
+
+    countMatches
+        .get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG)
+        .apply("PrintTargetUnmatchedRecords",
+            MapElements.into(TypeDescriptors.voids()) // No output needed, just a side effect (printing)
+                .via(
+                    (String spannerRecord) -> {
+                      LOG.info("Unmatched spannerRecord: {}", spannerRecord);
+                      return null; // Return null because the output type is Void
+                    }));
 
     // Execute the pipeline and return the result.
     return pipeline.run();
