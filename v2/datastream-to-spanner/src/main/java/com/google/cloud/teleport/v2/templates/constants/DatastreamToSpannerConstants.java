@@ -16,6 +16,7 @@
 package com.google.cloud.teleport.v2.templates.constants;
 
 import com.google.cloud.Timestamp;
+import com.google.cloud.spanner.Struct;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import org.apache.beam.sdk.values.TupleTag;
 
@@ -41,6 +42,15 @@ public class DatastreamToSpannerConstants {
 
   /* The Tag for Successful mutations. */
   public static final TupleTag<Timestamp> SUCCESSFUL_EVENT_TAG = new TupleTag<Timestamp>() {};
+
+  public static final TupleTag<Struct> SPANNER_RECORDS = new TupleTag<Struct>() {};
+
+  public static final TupleTag<FailsafeElement<String, String>> SPANNER_READ_ERRORS =
+      new TupleTag<FailsafeElement<String, String>>() {};
+
+  public static final TupleTag<String> JDBC_TAG = new TupleTag<>();
+  // spanner hash results from initial partitioned query
+  public static final TupleTag<String> SPANNER_TAG = new TupleTag<>();
 
   /* Max DoFns per dataflow worker in a streaming pipeline. */
   public static final int MAX_DOFN_PER_WORKER = 500;

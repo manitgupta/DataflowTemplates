@@ -22,12 +22,8 @@ import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.metadata.TemplateParameter;
 import com.google.cloud.teleport.metadata.TemplateParameter.TemplateEnumOption;
-import com.google.cloud.teleport.v2.cdc.dlq.DeadLetterQueueManager;
-import com.google.cloud.teleport.v2.cdc.dlq.PubSubNotifiedDlqIO;
-import com.google.cloud.teleport.v2.cdc.dlq.StringDeadLetterQueueSanitizer;
-import com.google.cloud.teleport.v2.coders.FailsafeElementCoder;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
-import com.google.cloud.teleport.v2.datastream.sources.DataStreamIO;
+import com.google.cloud.teleport.v2.datastream.sources.DatastreamReader;
 import com.google.cloud.teleport.v2.datastream.utils.DataStreamClient;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaOverridesParser;
@@ -46,43 +42,32 @@ import com.google.cloud.teleport.v2.templates.constants.DatastreamToSpannerConst
 import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
 import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
 import com.google.cloud.teleport.v2.templates.transform.ChangeEventTransformerDoFn;
-import com.google.cloud.teleport.v2.transforms.DLQWriteTransform;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import com.google.common.base.Strings;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
-import org.apache.beam.sdk.io.FileSystems;
-import org.apache.beam.sdk.io.TextIO;
-import org.apache.beam.sdk.io.fs.ResolveOptions.StandardResolveOptions;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerServiceFactoryImpl;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
-import org.apache.beam.sdk.options.StreamingOptions;
 import org.apache.beam.sdk.options.ValueProvider;
-import org.apache.beam.sdk.transforms.Flatten;
-import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.View;
-import org.apache.beam.sdk.transforms.windowing.FixedWindows;
-import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.transforms.join.CoGbkResult;
+import org.apache.beam.sdk.transforms.join.CoGroupByKey;
+import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTagList;
-import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -98,7 +83,7 @@ import org.slf4j.LoggerFactory;
  */
 @Template(
     name = "Cloud_Datastream_to_Spanner",
-    category = TemplateCategory.STREAMING,
+    category = TemplateCategory.BATCH,
     displayName = "Datastream to Cloud Spanner",
     description = {
       "The Datastream to Cloud Spanner template is a streaming pipeline that reads <a"
@@ -136,9 +121,9 @@ import org.slf4j.LoggerFactory;
       "A Cloud Storage bucket where Datastream events are replicated.",
       "A Cloud Spanner database with existing tables. These tables can be empty or contain data.",
     },
-    streaming = true,
     supportsAtLeastOnce = true)
 public class DataStreamToSpanner {
+
   private static final Logger LOG = LoggerFactory.getLogger(DataStreamToSpanner.class);
   private static final String AVRO_SUFFIX = "avro";
   private static final String JSON_SUFFIX = "json";
@@ -148,8 +133,8 @@ public class DataStreamToSpanner {
    *
    * <p>Inherits standard configuration options.
    */
-  public interface Options
-      extends PipelineOptions, StreamingOptions, DataflowPipelineWorkerPoolOptions {
+  public interface Options extends PipelineOptions, DataflowPipelineWorkerPoolOptions {
+
     @TemplateParameter.GcsReadFile(
         order = 1,
         groupName = "Source",
@@ -629,7 +614,6 @@ public class DataStreamToSpanner {
     UncaughtExceptionLogger.register();
     LOG.info("Starting DataStream to Cloud Spanner");
     Options options = PipelineOptionsFactory.fromArgs(args).withValidation().as(Options.class);
-    options.setStreaming(true);
     validateSourceType(options);
     run(options);
   }
@@ -648,7 +632,6 @@ public class DataStreamToSpanner {
      *   3) Write Failures to GCS Dead Letter Queue
      */
     Pipeline pipeline = Pipeline.create(options);
-    DeadLetterQueueManager dlqManager = buildDlqManager(options);
     // Ingest session file into schema object.
     Schema schema = SessionFileReader.read(options.getSessionFilePath());
     /*
@@ -694,76 +677,18 @@ public class DataStreamToSpanner {
                 options.getShouldCreateShadowTables(),
                 options.getShadowTablePrefix(),
                 options.getDatastreamSourceType()));
+
     PCollectionView<Ddl> ddlView =
         ddlTuple
             .get(ProcessInformationSchema.MAIN_DDL_TAG)
             .apply("Cloud Spanner Main DDL as view", View.asSingleton());
 
-    PCollectionView<Ddl> shadowTableDdlView =
-        ddlTuple
-            .get(ProcessInformationSchema.SHADOW_TABLE_DDL_TAG)
-            .apply("Cloud Spanner shadow tables DDL as view", View.asSingleton());
-
-    PCollection<FailsafeElement<String, String>> jsonRecords = null;
-    // Elements sent to the Dead Letter Queue are to be reconsumed.
-    // A DLQManager is to be created using PipelineOptions, and it is in charge
-    // of building pieces of the DLQ.
-    PCollectionTuple reconsumedElements = null;
-    boolean isRegularMode = "regular".equals(options.getRunMode());
-    if (isRegularMode && (!Strings.isNullOrEmpty(options.getDlqGcsPubSubSubscription()))) {
-      reconsumedElements =
-          dlqManager.getReconsumerDataTransformForFiles(
-              pipeline.apply(
-                  "Read retry from PubSub",
-                  new PubSubNotifiedDlqIO(
-                      options.getDlqGcsPubSubSubscription(),
-                      // file paths to ignore when re-consuming for retry
-                      new ArrayList<String>(
-                          Arrays.asList("/severe/", "/tmp_retry", "/tmp_severe/", ".temp")))));
-    } else {
-      reconsumedElements =
-          dlqManager.getReconsumerDataTransform(
-              pipeline.apply(dlqManager.dlqReconsumer(options.getDlqRetryMinutes())));
-    }
-    PCollection<FailsafeElement<String, String>> dlqJsonRecords =
-        reconsumedElements
-            .get(DeadLetterQueueManager.RETRYABLE_ERRORS)
-            .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
-    if (isRegularMode) {
-      LOG.info("Regular Datastream flow");
-      PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
-          pipeline.apply(
-              new DataStreamIO(
-                      options.getStreamName(),
-                      options.getInputFilePattern(),
-                      options.getInputFileFormat(),
-                      options.getGcsPubSubSubscription(),
-                      options.getRfcStartDateTime())
-                  .withFileReadConcurrency(options.getFileReadConcurrency())
-                  .withoutDatastreamRecordsReshuffle()
-                  .withDirectoryWatchDuration(
-                      Duration.standardMinutes(options.getDirectoryWatchDurationInMinutes())));
-      int maxNumWorkers = options.getMaxNumWorkers() != 0 ? options.getMaxNumWorkers() : 1;
-      jsonRecords =
-          PCollectionList.of(datastreamJsonRecords)
-              .and(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply(
-                  "Reshuffle",
-                  Reshuffle.<FailsafeElement<String, String>>viaRandomKey()
-                      .withNumBuckets(
-                          maxNumWorkers * DatastreamToSpannerConstants.MAX_DOFN_PER_WORKER));
-    } else {
-      LOG.info("DLQ retry flow");
-      jsonRecords =
-          PCollectionList.of(dlqJsonRecords)
-              .apply(Flatten.pCollections())
-              .apply("Reshuffle", Reshuffle.viaRandomKey());
-    }
+    PCollection<FailsafeElement<String, String>> jsonRecords =
+        pipeline.apply(
+            new DatastreamReader(options.getStreamName(), options.getInputFilePattern()));
     /*
      * Stage 2: Transform records
      */
-
     // Ingest transformation context file into memory.
     TransformationContext transformationContext =
         TransformationContextReader.getTransformationContext(
@@ -806,89 +731,34 @@ public class DataStreamToSpanner {
                             DatastreamToSpannerConstants.FILTERED_EVENT_TAG,
                             DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))));
 
-    /*
-     * Stage 3: Write filtered records to GCS
-     */
-    String tempLocation =
-        options.as(DataflowPipelineOptions.class).getTempLocation().endsWith("/")
-            ? options.as(DataflowPipelineOptions.class).getTempLocation()
-            : options.as(DataflowPipelineOptions.class).getTempLocation() + "/";
-    String filterEventsDirectory =
-        options.getFilteredEventsDirectory().isEmpty()
-            ? tempLocation + "filteredEvents/"
-            : options.getFilteredEventsDirectory();
-    LOG.info("Filtered events directory: {}", filterEventsDirectory);
-    transformedRecords
-        .get(DatastreamToSpannerConstants.FILTERED_EVENT_TAG)
-        .apply(Window.into(FixedWindows.of(Duration.standardMinutes(1))))
-        .apply(
-            "Write Filtered Events To GCS",
-            TextIO.write().to(filterEventsDirectory).withSuffix(".json").withWindowedWrites());
-
     spannerConfig =
         SpannerServiceFactoryImpl.createSpannerService(
             spannerConfig, options.getFailureInjectionParameter());
     /*
-     * Stage 4: Write transformed records to Cloud Spanner
+     * Stage 4: Read from spanner
      */
-    SpannerTransactionWriter.Result spannerWriteResults =
+    SpannerRecordReader.Result spannerRecordReaderResults =
         transformedRecords
             .get(DatastreamToSpannerConstants.TRANSFORMED_EVENT_TAG)
-            .apply(
-                "Write events to Cloud Spanner",
-                new SpannerTransactionWriter(
-                    spannerConfig,
-                    shadowTableSpannerConfig,
-                    ddlView,
-                    shadowTableDdlView,
-                    options.getShadowTablePrefix(),
-                    options.getDatastreamSourceType(),
-                    isRegularMode));
+            .apply("Read records from Spanner", new SpannerRecordReader(spannerConfig, ddlView));
     /*
-     * Stage 5: Write failures to GCS Dead Letter Queue
-     * a) Retryable errors are written to retry GCS Dead letter queue
-     * b) Severe errors are written to severe GCS Dead letter queue
+     * Stage 5: Convert source and spanner records read to hashes
      */
-    // We will write only the original payload from the failsafe event to the DLQ.  We are doing
-    // that in
-    // StringDeadLetterQueueSanitizer.
-    spannerWriteResults
-        .retryableErrors()
-        .apply(
-            "DLQ: Write retryable Failures to GCS",
-            MapElements.via(new StringDeadLetterQueueSanitizer()))
-        .setCoder(StringUtf8Coder.of())
-        .apply(
-            "Write To DLQ",
-            DLQWriteTransform.WriteDLQ.newBuilder()
-                .withDlqDirectory(dlqManager.getRetryDlqDirectoryWithDateTime())
-                .withTmpDirectory(options.getDeadLetterQueueDirectory() + "/tmp_retry/")
-                .setIncludePaneInfo(true)
-                .build());
-    PCollection<FailsafeElement<String, String>> dlqErrorRecords =
-        reconsumedElements
-            .get(DeadLetterQueueManager.PERMANENT_ERRORS)
-            .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
-    // TODO: Write errors from transformer and spanner writer into separate folders
-    PCollection<FailsafeElement<String, String>> permanentErrors =
-        PCollectionList.of(dlqErrorRecords)
-            .and(spannerWriteResults.permanentErrors())
-            .and(transformedRecords.get(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))
-            .apply(Flatten.pCollections());
-    // increment the metrics
-    permanentErrors
-        .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
-        .apply(
-            "DLQ: Write Severe errors to GCS",
-            MapElements.via(new StringDeadLetterQueueSanitizer()))
-        .setCoder(StringUtf8Coder.of())
-        .apply(
-            "Write To DLQ",
-            DLQWriteTransform.WriteDLQ.newBuilder()
-                .withDlqDirectory(dlqManager.getSevereDlqDirectoryWithDateTime())
-                .withTmpDirectory((options).getDeadLetterQueueDirectory() + "/tmp_severe/")
-                .setIncludePaneInfo(true)
-                .build());
+    PCollection<KV<String, String>> sourceHashes =
+        transformedRecords
+            .get(DatastreamToSpannerConstants.TRANSFORMED_EVENT_TAG)
+            .apply("Convert source records to hashes", ParDo.of(new DatastreamRecordToHashDoFn()));
+
+    PCollection<KV<String, String>> spannerHashes =
+        spannerRecordReaderResults
+            .spannerRecords()
+            .apply("Convert spanner records to hashes", ParDo.of(new SpannerRecordToHashDoFn()));
+
+    PCollection<KV<String, CoGbkResult>> groupByResults =
+        KeyedPCollectionTuple.of(DatastreamToSpannerConstants.JDBC_TAG, sourceHashes)
+            .and(DatastreamToSpannerConstants.SPANNER_TAG, spannerHashes)
+            .apply("Group by hash", CoGroupByKey.create());
+
     // Execute the pipeline and return the result.
     return pipeline.run();
   }
@@ -938,29 +808,6 @@ public class DataStreamToSpanner {
                 .setMaxRpcTimeout(org.threeten.bp.Duration.ofMinutes(4))
                 .setMaxAttempts(1)
                 .build());
-  }
-
-  private static DeadLetterQueueManager buildDlqManager(Options options) {
-    String tempLocation =
-        options.as(DataflowPipelineOptions.class).getTempLocation().endsWith("/")
-            ? options.as(DataflowPipelineOptions.class).getTempLocation()
-            : options.as(DataflowPipelineOptions.class).getTempLocation() + "/";
-    String dlqDirectory =
-        options.getDeadLetterQueueDirectory().isEmpty()
-            ? tempLocation + "dlq/"
-            : options.getDeadLetterQueueDirectory();
-    LOG.info("Dead-letter queue directory: {}", dlqDirectory);
-    options.setDeadLetterQueueDirectory(dlqDirectory);
-    if ("regular".equals(options.getRunMode())) {
-      return DeadLetterQueueManager.create(dlqDirectory, options.getDlqMaxRetryCount());
-    } else {
-      String retryDlqUri =
-          FileSystems.matchNewResource(dlqDirectory, true)
-              .resolve("severe", StandardResolveOptions.RESOLVE_DIRECTORY)
-              .toString();
-      LOG.info("Dead-letter retry directory: {}", retryDlqUri);
-      return DeadLetterQueueManager.create(dlqDirectory, retryDlqUri, 0);
-    }
   }
 
   static ISchemaOverridesParser configureSchemaOverrides(Options options) {
