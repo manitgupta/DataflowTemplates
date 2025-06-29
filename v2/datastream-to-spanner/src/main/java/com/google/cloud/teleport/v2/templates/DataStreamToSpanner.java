@@ -48,13 +48,14 @@ import com.google.cloud.teleport.v2.templates.transform.ChangeEventTransformerDo
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import com.google.common.base.Strings;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions;
-import org.apache.beam.runners.dataflow.options.DataflowWorkerHarnessOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
@@ -145,8 +146,7 @@ public class DataStreamToSpanner {
    *
    * <p>Inherits standard configuration options.
    */
-  public interface Options extends PipelineOptions, DataflowPipelineWorkerPoolOptions,
-      DataflowWorkerHarnessOptions {
+  public interface Options extends PipelineOptions, DataflowPipelineWorkerPoolOptions {
 
     @TemplateParameter.GcsReadFile(
         order = 1,
@@ -645,7 +645,10 @@ public class DataStreamToSpanner {
      *   3) Write Failures to GCS Dead Letter Queue
      */
     Pipeline pipeline = Pipeline.create(options);
-    String jobId = options.getJobId();
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    Date now = new Date();
+    String formattedDateTime = sdf.format(now);
+    String jobId = String.format("Run-%s-%s", options.getDatabaseId(), formattedDateTime);
     // Ingest session file into schema object.
     Schema schema = SessionFileReader.read(options.getSessionFilePath());
     /*
@@ -813,8 +816,8 @@ public class DataStreamToSpanner {
         String[] parts = c.element().getKey().split(":");
         TableRow row = new TableRow()
             .set("JobId", jobId)
-            .set("TableName", parts[0])
-            .set("CounterName", parts[1])
+            .set("TableName", parts[1])
+            .set("CounterName", parts[0])
             .set("CounterValue", c.element().getValue());
         c.output(row);
       }
