@@ -49,7 +49,7 @@ public class DatastreamRecordToHashDoFn
       ChangeEventConvertor.convertChangeEventColumnKeysToLowerCase(changeEvent);
       List<String> changeEventKeys = ChangeEventUtils.getEventColumnKeys(changeEvent);
       StringBuilder sb = new StringBuilder();
-      sb.append(changeEvent.get(DatastreamConstants.EVENT_TABLE_NAME_KEY).asText());
+      sb.append(String.format("#%s#",changeEvent.get(DatastreamConstants.EVENT_TABLE_NAME_KEY).asText()));
       for (String key : changeEventKeys) {
         JsonNode node = changeEvent.get(key);
         if (!node.asText().equals("null")) {

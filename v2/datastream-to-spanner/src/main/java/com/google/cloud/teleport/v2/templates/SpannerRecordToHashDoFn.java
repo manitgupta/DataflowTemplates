@@ -35,7 +35,7 @@ public class SpannerRecordToHashDoFn extends DoFn<SpannerRecord, KV<String, Stri
     Struct spannerStruct = spannerRecord.getSpannerRecord();
     int nCols = spannerStruct.getColumnCount();
     StringBuilder sbConcatCols = new StringBuilder();
-    sbConcatCols.append(spannerRecord.getTableName());
+    sbConcatCols.append(String.format("#%s#", spannerRecord.getTableName()));
     for (int i = 0; i < nCols; i++) {
       Type colType = spannerStruct.getColumnType(i);
 

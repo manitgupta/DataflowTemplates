@@ -16,7 +16,6 @@
 package com.google.cloud.teleport.v2.templates;
 
 import com.google.auto.value.AutoValue;
-import com.google.cloud.spanner.Struct;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.templates.constants.DatastreamToSpannerConstants;
 import com.google.cloud.teleport.v2.values.FailsafeElement;

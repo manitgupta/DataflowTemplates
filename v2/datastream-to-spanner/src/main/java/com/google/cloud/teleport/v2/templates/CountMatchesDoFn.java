@@ -25,13 +25,13 @@ import org.slf4j.LoggerFactory;
 public class CountMatchesDoFn extends DoFn<KV<String, CoGbkResult>, KV<String, Long>> {
 
   private static final Logger LOG = LoggerFactory.getLogger(CountMatchesDoFn.class);
-  public static final String TOTAL_MATCHES = "totalMatches";
-  public static final String TOTAL_SOURCE_RECORD_COUNT = "totalSourceRecordCount";
-  public static final String TOTAL_TARGET_RECORD_COUNT = "totalTargetRecordCount";
+  public static final String TOTAL_MATCHES = "totalMatches:";
+  public static final String TOTAL_SOURCE_RECORD_COUNT = "totalSourceRecordCount:";
+  public static final String TOTAL_TARGET_RECORD_COUNT = "totalTargetRecordCount:";
   public static final String TOTAL_UNMATCHED_TARGET_RECORD_COUNT =
-      "totalUnmatchedTargetRecordCount";
+      "totalUnmatchedTargetRecordCount:";
   public static final String TOTAL_UNMATCHED_SOURCE_RECORD_COUNT =
-      "totalUnmatchedSourceRecordCount";
+      "totalUnmatchedSourceRecordCount:";
 
   @ProcessElement
   public void processElement(ProcessContext c, MultiOutputReceiver out) {
@@ -47,24 +47,31 @@ public class CountMatchesDoFn extends DoFn<KV<String, CoGbkResult>, KV<String, L
       spannerRecord = spannerRecords.iterator().next();
     }
     if (spannerRecord != null && sourceRecord != null) {
-      out.get(DatastreamToSpannerConstants.MATCHED_RECORDS_TAG).output(KV.of(TOTAL_MATCHES, 1L));
+      String tableName = getTableFromRecord(sourceRecord);
+      out.get(DatastreamToSpannerConstants.MATCHED_RECORDS_TAG).output(KV.of(TOTAL_MATCHES + tableName, 1L));
       out.get(DatastreamToSpannerConstants.SOURCE_RECORDS_TAG)
-          .output(KV.of(TOTAL_SOURCE_RECORD_COUNT, 1L));
+          .output(KV.of(TOTAL_SOURCE_RECORD_COUNT + tableName, 1L));
       out.get(DatastreamToSpannerConstants.TARGET_RECORDS_TAG)
-          .output(KV.of(TOTAL_TARGET_RECORD_COUNT, 1L));
+          .output(KV.of(TOTAL_TARGET_RECORD_COUNT + tableName, 1L));
     } else if (spannerRecord != null) { //record found in spanner but not in source
+      String tableName = getTableFromRecord(spannerRecord);
       out.get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG)
-          .output(KV.of(TOTAL_UNMATCHED_TARGET_RECORD_COUNT, 1L));
+          .output(KV.of(TOTAL_UNMATCHED_TARGET_RECORD_COUNT + tableName, 1L));
       out.get(DatastreamToSpannerConstants.TARGET_RECORDS_TAG)
-          .output(KV.of(TOTAL_TARGET_RECORD_COUNT, 1L));
+          .output(KV.of(TOTAL_TARGET_RECORD_COUNT + tableName, 1L));
       out.get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG)
           .output(spannerRecord);
     } else if (sourceRecord != null) {
+      String tableName = getTableFromRecord(sourceRecord);
       out.get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG)
-          .output(KV.of(TOTAL_UNMATCHED_SOURCE_RECORD_COUNT, 1L));
+          .output(KV.of(TOTAL_UNMATCHED_SOURCE_RECORD_COUNT + tableName, 1L));
       out.get(DatastreamToSpannerConstants.SOURCE_RECORDS_TAG)
-          .output(KV.of(TOTAL_SOURCE_RECORD_COUNT, 1L));
+          .output(KV.of(TOTAL_SOURCE_RECORD_COUNT + tableName, 1L));
       out.get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG).output(sourceRecord);
     }
+  }
+
+  private String getTableFromRecord(String recordString) {
+    return recordString.substring(1, recordString.indexOf('#', 1)); //first hash is always at zero index
   }
 }

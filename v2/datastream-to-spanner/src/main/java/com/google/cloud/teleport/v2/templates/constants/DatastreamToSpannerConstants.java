@@ -16,7 +16,6 @@
 package com.google.cloud.teleport.v2.templates.constants;
 
 import com.google.cloud.Timestamp;
-import com.google.cloud.spanner.Struct;
 import com.google.cloud.teleport.v2.templates.SpannerRecord;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import org.apache.beam.sdk.values.KV;

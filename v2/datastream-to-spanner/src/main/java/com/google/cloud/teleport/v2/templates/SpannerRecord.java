@@ -1,11 +1,12 @@
 package com.google.cloud.teleport.v2.templates;
 
 import com.google.cloud.spanner.Struct;
+import java.io.Serializable;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 
 @DefaultCoder(SerializableCoder.class)
-public class SpannerRecord {
+public class SpannerRecord implements Serializable {
   private final String tableName;
   private final Struct spannerRecord;
 
