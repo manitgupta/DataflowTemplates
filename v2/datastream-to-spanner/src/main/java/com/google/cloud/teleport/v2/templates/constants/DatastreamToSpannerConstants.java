@@ -71,7 +71,7 @@ public class DatastreamToSpannerConstants {
 
   public static final TupleTag<String> SOURCE_TAG = new TupleTag<>();
   // spanner hash results from initial partitioned query
-  public static final TupleTag<String> SPANNER_TAG = new TupleTag<>();
+  public static final TupleTag<String> TARGET_TAG = new TupleTag<>();
 
   /* Max DoFns per dataflow worker in a streaming pipeline. */
   public static final int MAX_DOFN_PER_WORKER = 500;

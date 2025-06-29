@@ -37,7 +37,7 @@ public class CountMatchesDoFn extends DoFn<KV<String, CoGbkResult>, KV<String, L
   public void processElement(ProcessContext c, MultiOutputReceiver out) {
     KV<String, CoGbkResult> e = c.element();
     Iterable<String> sourceRecords = e.getValue().getAll(DatastreamToSpannerConstants.SOURCE_TAG);
-    Iterable<String> spannerRecords = e.getValue().getAll(DatastreamToSpannerConstants.SPANNER_TAG);
+    Iterable<String> spannerRecords = e.getValue().getAll(DatastreamToSpannerConstants.TARGET_TAG);
 
     String sourceRecord = null, spannerRecord = null;
     if (sourceRecords.iterator().hasNext()) {

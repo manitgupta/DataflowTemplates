@@ -58,7 +58,7 @@ public class DatastreamRecordToHashDoFn
       }
       String hash = org.apache.commons.codec.digest.DigestUtils.sha256Hex(sb.toString());
       // LOG.info("Source Hash = {}, Source payload: {}", hash, sb.toString());
-      c.output(KV.of(hash, msg.getPayload()));
+      c.output(KV.of(hash, sb.toString()));
     } catch (Exception e) {
       LOG.error("Unhandled Exception in datastream to hash dofn", e);
     }

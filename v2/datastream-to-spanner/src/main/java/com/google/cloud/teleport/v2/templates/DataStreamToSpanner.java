@@ -16,6 +16,9 @@
 package com.google.cloud.teleport.v2.templates;
 
 import com.google.api.gax.retrying.RetrySettings;
+import com.google.api.services.bigquery.model.TableFieldSchema;
+import com.google.api.services.bigquery.model.TableRow;
+import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.datastream.v1.model.SourceConfig;
 import com.google.cloud.spanner.Options.RpcPriority;
 import com.google.cloud.teleport.metadata.Template;
@@ -47,11 +50,15 @@ import com.google.common.base.Strings;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions;
+import org.apache.beam.runners.dataflow.options.DataflowWorkerHarnessOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerServiceFactoryImpl;
 import org.apache.beam.sdk.options.Default;
@@ -59,8 +66,8 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
-import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
@@ -71,8 +78,8 @@ import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TupleTagList;
-import org.apache.beam.sdk.values.TypeDescriptors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,7 +145,8 @@ public class DataStreamToSpanner {
    *
    * <p>Inherits standard configuration options.
    */
-  public interface Options extends PipelineOptions, DataflowPipelineWorkerPoolOptions {
+  public interface Options extends PipelineOptions, DataflowPipelineWorkerPoolOptions,
+      DataflowWorkerHarnessOptions {
 
     @TemplateParameter.GcsReadFile(
         order = 1,
@@ -637,6 +645,7 @@ public class DataStreamToSpanner {
      *   3) Write Failures to GCS Dead Letter Queue
      */
     Pipeline pipeline = Pipeline.create(options);
+    String jobId = options.getJobId();
     // Ingest session file into schema object.
     Schema schema = SessionFileReader.read(options.getSessionFilePath());
     /*
@@ -761,7 +770,7 @@ public class DataStreamToSpanner {
 
     PCollection<KV<String, CoGbkResult>> groupByResults =
         KeyedPCollectionTuple.of(DatastreamToSpannerConstants.SOURCE_TAG, sourceHashes)
-            .and(DatastreamToSpannerConstants.SPANNER_TAG, spannerHashes)
+            .and(DatastreamToSpannerConstants.TARGET_TAG, spannerHashes)
             .apply("Group by hash", CoGroupByKey.create());
 
     PCollectionTuple countMatches =
@@ -777,70 +786,87 @@ public class DataStreamToSpanner {
                         .and(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG)
                         .and(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG)));
 
-    // Count the tagged results by range
-    PCollection<KV<String, Long>> matchedRecordCount =
-        countMatches
-            .get(DatastreamToSpannerConstants.MATCHED_RECORDS_TAG)
-            .apply("MatchedRecordCount", Count.perKey());
-
-    PCollection<KV<String, Long>> unmatchedTargetRecordCount =
-        countMatches
-            .get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG)
-            .apply("UnmatchedTargetRecordCount", Count.perKey());
-
-    PCollection<KV<String, Long>> unmatchedSourceCount =
-        countMatches
-            .get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG)
-            .apply("UnmatchedSourceRecordCount", Count.perKey());
-
-    PCollection<KV<String, Long>> sourceRecordCount =
-        countMatches
-            .get(DatastreamToSpannerConstants.SOURCE_RECORDS_TAG)
-            .apply("SourceRecordCount", Count.perKey());
-
-    PCollection<KV<String, Long>> targetRecordCount =
-        countMatches
-            .get(DatastreamToSpannerConstants.TARGET_RECORDS_TAG)
-            .apply("TargetRecordCount", Count.perKey());
+    List<KV<String, TupleTag<KV<String, Long>>>> tagsToCount =
+        Arrays.asList(
+            KV.of("MatchedRecords", DatastreamToSpannerConstants.MATCHED_RECORDS_TAG),
+            KV.of("UnmatchedTargetRecords", DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG),
+            KV.of("UnmatchedSourceRecords", DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG),
+            KV.of("SourceRecordsTag", DatastreamToSpannerConstants.SOURCE_RECORDS_TAG),
+            KV.of("TargetRecordsTag", DatastreamToSpannerConstants.TARGET_RECORDS_TAG));
 
     PCollectionList<KV<String, Long>> pCollectionList =
-        PCollectionList.of(matchedRecordCount)
-            .and(unmatchedTargetRecordCount)
-            .and(unmatchedSourceCount)
-            .and(sourceRecordCount)
-            .and(targetRecordCount);
+        PCollectionList.of(
+            tagsToCount.stream()
+                .map(
+                    kvTag ->
+                        countMatches
+                            .get(kvTag.getValue())
+                            .apply("Count-" + kvTag.getKey(), Count.perKey()))
+                .collect(Collectors.toList()));
 
     PCollection<KV<String, Long>> allCounts =
         pCollectionList.apply("FlattenAllCounts", Flatten.pCollections());
 
-    allCounts.apply(
-        "PrintAllCounts",
-        MapElements.into(TypeDescriptors.voids()) // No output needed, just a side effect (printing)
-            .via(
-                (KV<String, Long> kv) -> {
-                  LOG.info("Counter: {}, Count: {}", kv.getKey(), kv.getValue());
-                  return null; // Return null because the output type is Void
-                }));
+    PCollection<TableRow> tableRows = allCounts.apply("ConvertToTableRows", ParDo.of(new DoFn<KV<String, Long>, TableRow>() {
+      @ProcessElement
+      public void processElement(ProcessContext c) {
+        String[] parts = c.element().getKey().split(":");
+        TableRow row = new TableRow()
+            .set("JobId", jobId)
+            .set("TableName", parts[0])
+            .set("CounterName", parts[1])
+            .set("CounterValue", c.element().getValue());
+        c.output(row);
+      }
+    }));
 
-    countMatches
-        .get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG)
-        .apply("PrintSourceUnmatchedRecords",
-            MapElements.into(TypeDescriptors.voids()) // No output needed, just a side effect (printing)
-                .via(
-                    (String sourceRecord) -> {
-                      LOG.info("Unmatched sourceRecord: {}", sourceRecord);
-                      return null; // Return null because the output type is Void
-                    }));
+    TableSchema countTableSchema = new TableSchema().setFields(Arrays.asList(
+        new TableFieldSchema().setName("JobId").setType("STRING"),
+        new TableFieldSchema().setName("TableName").setType("STRING"),
+        new TableFieldSchema().setName("CounterName").setType("STRING"),
+        new TableFieldSchema().setName("CounterValue").setType("INT64")
+    ));
 
-    countMatches
-        .get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG)
-        .apply("PrintTargetUnmatchedRecords",
-            MapElements.into(TypeDescriptors.voids()) // No output needed, just a side effect (printing)
-                .via(
-                    (String spannerRecord) -> {
-                      LOG.info("Unmatched spannerRecord: {}", spannerRecord);
-                      return null; // Return null because the output type is Void
-                    }));
+    tableRows.apply("WriteCountsToBigQuery", BigQueryIO.writeTableRows()
+        .to(String.format("%s:%s.%s", options.getProject(), "DatastreamSpannerValidator", "ValidationCounts"))
+        .withSchema(countTableSchema)
+        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
+        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));
+
+    PCollection<String> unmatchedSourceRecords = countMatches
+        .get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG);
+
+    TableSchema sourceSchema = new TableSchema().setFields(
+        Arrays.asList(
+            new TableFieldSchema().setName("JobId").setType("STRING"),
+            new TableFieldSchema().setName("SourceRecord").setType("STRING")
+        )
+    );
+
+    unmatchedSourceRecords.apply("WriteSourceUnmatchedToBQ", BigQueryIO.<String>write()
+        .to(String.format("%s:%s.%s", options.getProject(), "DatastreamSpannerValidator", "SourceUnmatchedRecords"))
+        .withSchema(sourceSchema)
+        .withFormatFunction((String record) -> new TableRow().set("JobId", jobId).set("SourceRecord", record))
+        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
+        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));
+
+    PCollection<String> unmatchedTargetRecords = countMatches
+        .get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG);
+
+    TableSchema targetSchema = new TableSchema().setFields(
+        Arrays.asList(
+            new TableFieldSchema().setName("JobId").setType("STRING"),
+            new TableFieldSchema().setName("TargetRecord").setType("STRING")
+        )
+    );
+
+    unmatchedTargetRecords.apply("WriteTargetUnmatchedToBQ", BigQueryIO.<String>write()
+        .to(String.format("%s:%s.%s", options.getProject(), "DatastreamSpannerValidator", "TargetUnmatchedRecords"))
+        .withSchema(targetSchema)
+        .withFormatFunction((String record) -> new TableRow().set("JobId", jobId).set("TargetRecord", record))
+        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
+        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));
+
 
     // Execute the pipeline and return the result.
     return pipeline.run();
