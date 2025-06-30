@@ -24,19 +24,21 @@ import org.apache.commons.codec.binary.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SpannerRecordToHashDoFn extends DoFn<SpannerRecord, KV<String, String>>
+public class SpannerRecordToHashDoFn extends DoFn<Struct, KV<String, String>>
     implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(SpannerRecordToHashDoFn.class);
 
   @ProcessElement
   public void processElement(ProcessContext c) {
-    SpannerRecord spannerRecord = c.element();
-    Struct spannerStruct = spannerRecord.getSpannerRecord();
+    Struct spannerStruct = c.element();
     int nCols = spannerStruct.getColumnCount();
     StringBuilder sbConcatCols = new StringBuilder();
-    sbConcatCols.append(String.format("#%s#", spannerRecord.getTableName()));
+    sbConcatCols.append(String.format("#%s#", spannerStruct.getString("source_table")));
     for (int i = 0; i < nCols; i++) {
+      if (i == spannerStruct.getColumnIndex("source_table")) {
+        continue; //skip adding the table name to the hash
+      }
       Type colType = spannerStruct.getColumnType(i);
       String colName = spannerStruct.getType().getStructFields().get(i).getName().toLowerCase();
 
