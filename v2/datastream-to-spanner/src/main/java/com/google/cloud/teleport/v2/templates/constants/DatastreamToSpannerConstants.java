@@ -16,7 +16,6 @@
 package com.google.cloud.teleport.v2.templates.constants;
 
 import com.google.cloud.Timestamp;
-import com.google.cloud.teleport.v2.templates.SpannerRecord;
 import com.google.cloud.teleport.v2.values.FailsafeElement;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.TupleTag;
@@ -44,7 +43,6 @@ public class DatastreamToSpannerConstants {
   /* The Tag for Successful mutations. */
   public static final TupleTag<Timestamp> SUCCESSFUL_EVENT_TAG = new TupleTag<Timestamp>() {};
 
-  public static final TupleTag<SpannerRecord> SPANNER_RECORDS = new TupleTag<SpannerRecord>() {};
 
   public static final TupleTag<KV<String, Long>> MATCHED_RECORDS_TAG =
       new TupleTag<KV<String, Long>>() {};

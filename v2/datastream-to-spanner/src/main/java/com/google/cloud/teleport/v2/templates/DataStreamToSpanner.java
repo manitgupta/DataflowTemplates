@@ -27,7 +27,6 @@ import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.metadata.TemplateParameter;
 import com.google.cloud.teleport.metadata.TemplateParameter.TemplateEnumOption;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
-import com.google.cloud.teleport.v2.datastream.sources.DatastreamReader;
 import com.google.cloud.teleport.v2.datastream.utils.DataStreamClient;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaOverridesParser;
@@ -35,18 +34,11 @@ import com.google.cloud.teleport.v2.spanner.migrations.schema.NoopSchemaOverride
 import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaFileOverridesParser;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaStringOverridesParser;
-import com.google.cloud.teleport.v2.spanner.migrations.shard.ShardingContext;
-import com.google.cloud.teleport.v2.spanner.migrations.transformation.CustomTransformation;
-import com.google.cloud.teleport.v2.spanner.migrations.transformation.TransformationContext;
 import com.google.cloud.teleport.v2.spanner.migrations.utils.SessionFileReader;
-import com.google.cloud.teleport.v2.spanner.migrations.utils.ShardingContextReader;
-import com.google.cloud.teleport.v2.spanner.migrations.utils.TransformationContextReader;
 import com.google.cloud.teleport.v2.templates.DataStreamToSpanner.Options;
 import com.google.cloud.teleport.v2.templates.constants.DatastreamToSpannerConstants;
 import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
 import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
-import com.google.cloud.teleport.v2.templates.transform.ChangeEventTransformerDoFn;
-import com.google.cloud.teleport.v2.values.FailsafeElement;
 import com.google.common.base.Strings;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -65,15 +57,18 @@ import org.apache.beam.sdk.io.gcp.spanner.ReadOperation;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerServiceFactoryImpl;
+import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.FlatMapElements;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
@@ -726,61 +721,39 @@ public class DataStreamToSpanner {
     );
 
 
-    PCollection<FailsafeElement<String, String>> jsonRecords =
-        pipeline.apply(
-            new DatastreamReader(options.getStreamName(), options.getInputFilePattern()));
-    /*
-     * Stage 2: Transform records
-     */
-    // Ingest transformation context file into memory.
-    TransformationContext transformationContext =
-        TransformationContextReader.getTransformationContext(
-            options.getTransformationContextFilePath());
+    JdbcIO.DataSourceConfiguration dataSourceConfig = JdbcIO.DataSourceConfiguration.create(
+            "com.mysql.cj.jdbc.Driver", "jdbc:mysql://34.132.139.144:3306/person")
+        .withUsername("hbuser")
+        .withPassword("hbpwd");
 
-    // Ingest sharding context file into memory.
-    ShardingContext shardingContext =
-        ShardingContextReader.getShardingContext(options.getShardingContextFilePath());
+    List<KV<String, String>> tablesToProcess = Arrays.asList(
+        KV.of("person1", "ID"),
+        KV.of("person2", "ID"),
+        KV.of("person3", "ID"),
+        KV.of("person4", "ID")
+    );
 
-    CustomTransformation customTransformation =
-        CustomTransformation.builder(
-                options.getTransformationJarPath(), options.getTransformationClassName())
-            .setCustomParameters(options.getTransformationCustomParameters())
-            .build();
+    Map<String, String> tableToPartitionColumnMap = tablesToProcess.stream()
+        .collect(Collectors.toMap(KV::getKey, KV::getValue));
 
-    // Create the overrides mapping.
-    ISchemaOverridesParser schemaOverridesParser = configureSchemaOverrides(options);
+    // 1. Start with the list of tables to process
+    PCollection<KV<String, String>> tables = pipeline.apply("CreateTables", Create.of(tablesToProcess))
+        .apply("Reshuffle tables", Reshuffle.viaRandomKey());
 
-    ChangeEventTransformerDoFn changeEventTransformerDoFn =
-        ChangeEventTransformerDoFn.create(
-            schema,
-            schemaOverridesParser,
-            transformationContext,
-            shardingContext,
-            options.getDatastreamSourceType(),
-            customTransformation,
-            options.getRoundJsonDecimals(),
-            ddlView,
-            spannerConfig);
+    // 2. Generate partition ranges for each table
+    PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
+        ParDo.of(new GeneratePartitionsDoFn(dataSourceConfig)))
+        .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
 
-    PCollectionTuple transformedRecords =
-        jsonRecords.apply(
-            "Apply Transformation to events",
-            ParDo.of(changeEventTransformerDoFn)
-                .withSideInputs(ddlView)
-                .withOutputTags(
-                    DatastreamToSpannerConstants.TRANSFORMED_EVENT_TAG,
-                    TupleTagList.of(
-                        Arrays.asList(
-                            DatastreamToSpannerConstants.FILTERED_EVENT_TAG,
-                            DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))));
-
+    // 3. Fetch data for each partition
+    PCollection<SourceRecord> sourceRecords = partitions.apply("FetchPartitionData",
+        ParDo.of(new FetchPartitionDataDoFn(dataSourceConfig, tableToPartitionColumnMap)));
     /*
      * Stage 5: Convert source and spanner records read to hashes
      */
     PCollection<KV<String, String>> sourceHashes =
-        transformedRecords
-            .get(DatastreamToSpannerConstants.TRANSFORMED_EVENT_TAG)
-            .apply("Convert source records to hashes", ParDo.of(new DatastreamRecordToHashDoFn()));
+        sourceRecords
+            .apply("Convert source records to hashes", ParDo.of(new SourceRecordToHashDoFn()));
 
     PCollection<KV<String, String>> spannerHashes = spannerRows.apply("Convert spanner records to hashes", ParDo.of(new SpannerRecordToHashDoFn()));
 
