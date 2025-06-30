@@ -730,7 +730,23 @@ public class DataStreamToSpanner {
         KV.of("person1", "ID"),
         KV.of("person2", "ID"),
         KV.of("person3", "ID"),
-        KV.of("person4", "ID")
+        KV.of("person4", "ID"),
+        KV.of("person5", "ID"),
+        KV.of("person6", "ID"),
+        KV.of("person7", "ID"),
+        KV.of("person8", "ID"),
+        KV.of("person9", "ID"),
+        KV.of("person10", "ID"),
+        KV.of("person11", "ID"),
+        KV.of("person12", "ID"),
+        KV.of("person13", "ID"),
+        KV.of("person14", "ID"),
+        KV.of("person15", "ID"),
+        KV.of("person16", "ID"),
+        KV.of("person17", "ID"),
+        KV.of("person18", "ID"),
+        KV.of("person19", "ID"),
+        KV.of("person20", "ID")
     );
 
     Map<String, String> tableToPartitionColumnMap = tablesToProcess.stream()
@@ -741,8 +757,12 @@ public class DataStreamToSpanner {
         .apply("Reshuffle tables", Reshuffle.viaRandomKey());
 
     // 2. Generate partition ranges for each table
+    // PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
+    //     ParDo.of(new GeneratePartitionsDoFn(dataSourceConfig)))
+    //     .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
+
     PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
-        ParDo.of(new GeneratePartitionsDoFn(dataSourceConfig)))
+            ParDo.of(new GeneratePartitionsFastFn(dataSourceConfig, "person")))
         .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
 
     // 3. Fetch data for each partition
