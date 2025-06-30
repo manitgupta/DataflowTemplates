@@ -21,6 +21,7 @@ import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.datastream.v1.model.SourceConfig;
 import com.google.cloud.spanner.Options.RpcPriority;
+import com.google.cloud.spanner.Struct;
 import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.metadata.TemplateParameter;
@@ -60,7 +61,9 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
+import org.apache.beam.sdk.io.gcp.spanner.ReadOperation;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
+import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerServiceFactoryImpl;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -68,6 +71,7 @@ import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.FlatMapElements;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.View;
@@ -81,6 +85,7 @@ import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TupleTagList;
+import org.apache.beam.sdk.values.TypeDescriptors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -695,10 +700,31 @@ public class DataStreamToSpanner {
                 options.getShadowTablePrefix(),
                 options.getDatastreamSourceType()));
 
-    PCollectionView<Ddl> ddlView =
-        ddlTuple
-            .get(ProcessInformationSchema.MAIN_DDL_TAG)
-            .apply("Cloud Spanner Main DDL as view", View.asSingleton());
+    spannerConfig =
+        SpannerServiceFactoryImpl.createSpannerService(
+            spannerConfig, options.getFailureInjectionParameter());
+
+    PCollection<Ddl> ddl = ddlTuple.get(ProcessInformationSchema.MAIN_DDL_TAG);
+
+    PCollectionView<Ddl> ddlView = ddlTuple.get(ProcessInformationSchema.MAIN_DDL_TAG)
+        .apply("Spanner DDl as View", View.asSingleton());
+
+    PCollection<String> tableNames = ddl.apply(
+        "Extract Table Names",
+        FlatMapElements
+            .into(TypeDescriptors.strings())
+            .via((Ddl ddlVar) -> ddlVar.getTables().keySet())
+    );
+
+    PCollection<ReadOperation> spannerReadOps = tableNames.apply(
+        "Create Spanner Read operations", ParDo.of(new GetSpannerReadOpsFromDdlDofn()));
+
+
+    PCollection<Struct> spannerRows = spannerReadOps.apply(
+        "Read All from Spanner",
+        SpannerIO.readAll().withSpannerConfig(spannerConfig)
+    );
+
 
     PCollection<FailsafeElement<String, String>> jsonRecords =
         pipeline.apply(
@@ -748,16 +774,6 @@ public class DataStreamToSpanner {
                             DatastreamToSpannerConstants.FILTERED_EVENT_TAG,
                             DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))));
 
-    spannerConfig =
-        SpannerServiceFactoryImpl.createSpannerService(
-            spannerConfig, options.getFailureInjectionParameter());
-    /*
-     * Stage 4: Read from spanner
-     */
-    SpannerRecordReader.Result spannerRecordReaderResults =
-        transformedRecords
-            .get(DatastreamToSpannerConstants.TRANSFORMED_EVENT_TAG)
-            .apply("Read records from Spanner", new SpannerRecordReader(spannerConfig, ddlView));
     /*
      * Stage 5: Convert source and spanner records read to hashes
      */
@@ -766,10 +782,7 @@ public class DataStreamToSpanner {
             .get(DatastreamToSpannerConstants.TRANSFORMED_EVENT_TAG)
             .apply("Convert source records to hashes", ParDo.of(new DatastreamRecordToHashDoFn()));
 
-    PCollection<KV<String, String>> spannerHashes =
-        spannerRecordReaderResults
-            .spannerRecords()
-            .apply("Convert spanner records to hashes", ParDo.of(new SpannerRecordToHashDoFn()));
+    PCollection<KV<String, String>> spannerHashes = spannerRows.apply("Convert spanner records to hashes", ParDo.of(new SpannerRecordToHashDoFn()));
 
     PCollection<KV<String, CoGbkResult>> groupByResults =
         KeyedPCollectionTuple.of(DatastreamToSpannerConstants.SOURCE_TAG, sourceHashes)

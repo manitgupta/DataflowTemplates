@@ -46,6 +46,11 @@ public class Ddl implements Serializable {
   private static final long serialVersionUID = -4153759448351855360L;
 
   private ImmutableSortedMap<String, Table> tables;
+
+  public ImmutableSortedMap<String, Table> getTables() {
+    return tables;
+  }
+
   private TreeMultimap<String, String> parents;
 
   private final Dialect dialect;
