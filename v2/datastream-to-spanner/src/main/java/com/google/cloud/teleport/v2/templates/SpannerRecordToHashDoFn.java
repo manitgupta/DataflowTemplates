@@ -38,43 +38,61 @@ public class SpannerRecordToHashDoFn extends DoFn<SpannerRecord, KV<String, Stri
     sbConcatCols.append(String.format("#%s#", spannerRecord.getTableName()));
     for (int i = 0; i < nCols; i++) {
       Type colType = spannerStruct.getColumnType(i);
+      String colName = spannerStruct.getType().getStructFields().get(i).getName().toLowerCase();
 
       switch (colType.toString()) {
         case "STRING":
-          sbConcatCols.append(spannerStruct.isNull(i) ? "" : spannerStruct.getString(i));
+          if (!spannerStruct.isNull(i)) {
+            sbConcatCols.append(colName);
+            sbConcatCols.append(spannerStruct.getString(i));
+          }
           break;
         case "BYTES":
-          sbConcatCols.append(
-              spannerStruct.isNull(i)
-                  ? ""
-                  : Base64.encodeBase64String(spannerStruct.getBytes(i).toByteArray()));
+          if (!spannerStruct.isNull(i)) {
+            sbConcatCols.append(colName);
+            sbConcatCols.append(Base64.encodeBase64String(spannerStruct.getBytes(i).toByteArray()));
+          }
           break;
         case "INT64":
-          sbConcatCols.append(spannerStruct.isNull(i) ? "" : spannerStruct.getLong(i));
+          if (!spannerStruct.isNull(i)) {
+            sbConcatCols.append(colName);
+            sbConcatCols.append(spannerStruct.getLong(i));
+          }
           break;
         case "FLOAT64":
-          sbConcatCols.append(spannerStruct.isNull(i) ? "" : spannerStruct.getDouble(i));
+          if (!spannerStruct.isNull(i)) {
+            sbConcatCols.append(colName);
+            sbConcatCols.append(spannerStruct.getDouble(i));
+          }
           break;
         case "NUMERIC":
-          sbConcatCols.append(spannerStruct.isNull(i) ? "" : spannerStruct.getBigDecimal(i));
+          if (!spannerStruct.isNull(i)) {
+            sbConcatCols.append(colName);
+            sbConcatCols.append(spannerStruct.getBigDecimal(i));
+          }
           break;
         case "TIMESTAMP":
           // TODO: This uses millisecond precision; consider using microsecond precision
           if (!spannerStruct.isNull(i)) {
             Long rawTimestamp = spannerStruct.getTimestamp(i).toSqlTimestamp().getTime();
+            sbConcatCols.append(colName);
             sbConcatCols.append(rawTimestamp);
           }
           break;
         case "DATE":
           if (!spannerStruct.isNull(i)) {
             com.google.cloud.Date date = spannerStruct.getDate(i);
+            sbConcatCols.append(colName);
             sbConcatCols.append(
                 String.format("%d%d%d", date.getYear(), date.getMonth(), date.getDayOfMonth()));
           }
           break;
         case "BOOL":
         case "BOOLEAN":
-          sbConcatCols.append(spannerStruct.isNull(i) ? "" : spannerStruct.getBoolean(i));
+          if (!spannerStruct.isNull(i)) {
+            sbConcatCols.append(colName);
+            sbConcatCols.append(spannerStruct.getBoolean(i));
+          }
           break;
         default:
           throw new RuntimeException(String.format("Unsupported type: %s", colType));

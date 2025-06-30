@@ -53,6 +53,7 @@ public class DatastreamRecordToHashDoFn
       for (String key : changeEventKeys) {
         JsonNode node = changeEvent.get(key);
         if (!node.asText().equals("null")) {
+          sb.append(key);
           sb.append(node.asText());
         }
       }
