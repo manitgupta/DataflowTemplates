@@ -1,26 +1,44 @@
 package com.google.cloud.teleport.v2.templates;
 
 import java.io.Serializable;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.beam.sdk.coders.DefaultCoder;
-import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
+import org.apache.beam.sdk.coders.SerializableCoder;
 
-/** A generic representation of a row read from the database. */
-@DefaultCoder(AvroCoder.class)
+@DefaultCoder(SerializableCoder.class)
 public class SourceRecord implements Serializable {
-  public final Map<String, Object> rowData;
 
-  // No-arg constructor for coder
+  private final List<SourceField> sourceFields;
+
   public SourceRecord() {
-    this.rowData = null;
+    this.sourceFields = new ArrayList<>();
   }
 
-  public SourceRecord(Map<String, Object> rowData) {
-    this.rowData = rowData;
+  public void addField(String fieldName, String fieldDataType, Object fieldValue) {
+    this.sourceFields.add(new SourceField(fieldName, fieldDataType, fieldValue));
+  }
+
+  public SourceField getField(String fieldName) {
+    return sourceFields.stream().filter(s -> s.getFieldName().equals(fieldName)).findFirst().orElse(null);
+  }
+
+  public SourceField getField(int index) {
+    return sourceFields.get(index);
+  }
+
+  public void setField(int index, String fieldName, String fieldDataType, Object fieldValue) {
+    this.sourceFields.set(index, new SourceField(fieldName, fieldDataType, fieldValue));
+  }
+
+  public int length() {
+    return sourceFields.size();
   }
 
   @Override
   public String toString() {
-    return "SourceRecord{" + "rowData=" + rowData + '}';
+    return "SourceRecord{" +
+        "sourceFields=" + sourceFields +
+        '}';
   }
 }

@@ -16,19 +16,15 @@
 package com.google.cloud.teleport.v2.templates;
 
 import com.google.api.gax.retrying.RetrySettings;
-import com.google.api.services.bigquery.model.TableFieldSchema;
-import com.google.api.services.bigquery.model.TableRow;
-import com.google.api.services.bigquery.model.TableSchema;
 import com.google.api.services.datastream.v1.model.SourceConfig;
+import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Options.RpcPriority;
-import com.google.cloud.spanner.Struct;
 import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.metadata.TemplateParameter;
 import com.google.cloud.teleport.metadata.TemplateParameter.TemplateEnumOption;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
 import com.google.cloud.teleport.v2.datastream.utils.DataStreamClient;
-import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaOverridesParser;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.NoopSchemaOverridesParser;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
@@ -36,7 +32,6 @@ import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaFileOverride
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaStringOverridesParser;
 import com.google.cloud.teleport.v2.spanner.migrations.utils.SessionFileReader;
 import com.google.cloud.teleport.v2.templates.DataStreamToSpanner.Options;
-import com.google.cloud.teleport.v2.templates.constants.DatastreamToSpannerConstants;
 import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
 import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
 import com.google.common.base.Strings;
@@ -53,8 +48,6 @@ import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOption
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.extensions.gcp.options.GcpOptions;
-import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
-import org.apache.beam.sdk.io.gcp.spanner.ReadOperation;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerServiceFactoryImpl;
@@ -62,26 +55,13 @@ import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
-import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.Create;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.FlatMapElements;
-import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.SerializableFunction;
-import org.apache.beam.sdk.transforms.View;
-import org.apache.beam.sdk.transforms.join.CoGbkResult;
-import org.apache.beam.sdk.transforms.join.CoGroupByKey;
-import org.apache.beam.sdk.transforms.join.KeyedPCollectionTuple;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
-import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.TupleTag;
-import org.apache.beam.sdk.values.TupleTagList;
-import org.apache.beam.sdk.values.TypeDescriptors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -700,27 +680,6 @@ public class DataStreamToSpanner {
         SpannerServiceFactoryImpl.createSpannerService(
             spannerConfig, options.getFailureInjectionParameter());
 
-    PCollection<Ddl> ddl = ddlTuple.get(ProcessInformationSchema.MAIN_DDL_TAG);
-
-    PCollectionView<Ddl> ddlView = ddlTuple.get(ProcessInformationSchema.MAIN_DDL_TAG)
-        .apply("Spanner DDl as View", View.asSingleton());
-
-    PCollection<String> tableNames = ddl.apply(
-        "Extract Table Names",
-        FlatMapElements
-            .into(TypeDescriptors.strings())
-            .via((Ddl ddlVar) -> ddlVar.getTables().keySet())
-    );
-
-    PCollection<ReadOperation> spannerReadOps = tableNames.apply(
-        "Create Spanner Read operations", ParDo.of(new GetSpannerReadOpsFromDdlDofn()));
-
-
-    PCollection<Struct> spannerRows = spannerReadOps.apply(
-        "Read All from Spanner",
-        SpannerIO.readAll().withSpannerConfig(spannerConfig)
-    );
-
     List<KV<String, String>> tablesToProcess = Arrays.asList(
         KV.of("person1", "ID"),
         KV.of("person2", "ID"),
@@ -854,114 +813,14 @@ public class DataStreamToSpanner {
     // 3. Fetch data for each partition
     PCollection<SourceRecord> sourceRecords = partitions.apply("FetchPartitionData",
         ParDo.of(new FetchPartitionDataDoFn(hikariDataSourceFn, tableToPartitionColumnMap)));
-    /*
-     * Stage 5: Convert source and spanner records read to hashes
-     */
-    PCollection<KV<String, String>> sourceHashes =
-        sourceRecords
-            .apply("Convert source records to hashes", ParDo.of(new SourceRecordToHashDoFn()));
 
-    PCollection<KV<String, String>> spannerHashes = spannerRows.apply("Convert spanner records to hashes", ParDo.of(new SpannerRecordToHashDoFn()));
+    PCollection<Mutation> mutations = sourceRecords.apply("ConvertToMutations",
+        ParDo.of(new SourceRecordToMutationFn()));
 
-    PCollection<KV<String, CoGbkResult>> groupByResults =
-        KeyedPCollectionTuple.of(DatastreamToSpannerConstants.SOURCE_TAG, sourceHashes)
-            .and(DatastreamToSpannerConstants.TARGET_TAG, spannerHashes)
-            .apply("Group by hash", CoGroupByKey.create());
-
-    PCollectionTuple countMatches =
-        groupByResults.apply(
-            "Count Matches",
-            ParDo.of(new CountMatchesDoFn())
-                .withOutputTags(
-                    DatastreamToSpannerConstants.MATCHED_RECORDS_TAG,
-                    TupleTagList.of(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG)
-                        .and(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG)
-                        .and(DatastreamToSpannerConstants.SOURCE_RECORDS_TAG)
-                        .and(DatastreamToSpannerConstants.TARGET_RECORDS_TAG)
-                        .and(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG)
-                        .and(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG)));
-
-    List<KV<String, TupleTag<KV<String, Long>>>> tagsToCount =
-        Arrays.asList(
-            KV.of("MatchedRecords", DatastreamToSpannerConstants.MATCHED_RECORDS_TAG),
-            KV.of("UnmatchedTargetRecords", DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORDS_TAG),
-            KV.of("UnmatchedSourceRecords", DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORDS_TAG),
-            KV.of("SourceRecordsTag", DatastreamToSpannerConstants.SOURCE_RECORDS_TAG),
-            KV.of("TargetRecordsTag", DatastreamToSpannerConstants.TARGET_RECORDS_TAG));
-
-    PCollectionList<KV<String, Long>> pCollectionList =
-        PCollectionList.of(
-            tagsToCount.stream()
-                .map(
-                    kvTag ->
-                        countMatches
-                            .get(kvTag.getValue())
-                            .apply("Count-" + kvTag.getKey(), Count.perKey()))
-                .collect(Collectors.toList()));
-
-    PCollection<KV<String, Long>> allCounts =
-        pCollectionList.apply("FlattenAllCounts", Flatten.pCollections());
-
-    PCollection<TableRow> tableRows = allCounts.apply("ConvertToTableRows", ParDo.of(new DoFn<KV<String, Long>, TableRow>() {
-      @ProcessElement
-      public void processElement(ProcessContext c) {
-        String[] parts = c.element().getKey().split(":");
-        TableRow row = new TableRow()
-            .set("JobId", jobId)
-            .set("TableName", parts[1])
-            .set("CounterName", parts[0])
-            .set("CounterValue", c.element().getValue());
-        c.output(row);
-      }
-    }));
-
-    TableSchema countTableSchema = new TableSchema().setFields(Arrays.asList(
-        new TableFieldSchema().setName("JobId").setType("STRING"),
-        new TableFieldSchema().setName("TableName").setType("STRING"),
-        new TableFieldSchema().setName("CounterName").setType("STRING"),
-        new TableFieldSchema().setName("CounterValue").setType("INT64")
-    ));
-
-    tableRows.apply("WriteCountsToBigQuery", BigQueryIO.writeTableRows()
-        .to(String.format("%s:%s.%s", options.getProject(), "DatastreamSpannerValidator", "ValidationCounts"))
-        .withSchema(countTableSchema)
-        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
-        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));
-
-    PCollection<String> unmatchedSourceRecords = countMatches
-        .get(DatastreamToSpannerConstants.UNMATCHED_SOURCE_RECORD_VALUES_TAG);
-
-    TableSchema sourceSchema = new TableSchema().setFields(
-        Arrays.asList(
-            new TableFieldSchema().setName("JobId").setType("STRING"),
-            new TableFieldSchema().setName("SourceRecord").setType("STRING")
-        )
+    // --- Write the Mutations to Spanner ---
+    mutations.apply("WriteToSpanner", SpannerIO.write()
+        .withSpannerConfig(spannerConfig)
     );
-
-    unmatchedSourceRecords.apply("WriteSourceUnmatchedToBQ", BigQueryIO.<String>write()
-        .to(String.format("%s:%s.%s", options.getProject(), "DatastreamSpannerValidator", "SourceUnmatchedRecords"))
-        .withSchema(sourceSchema)
-        .withFormatFunction((String record) -> new TableRow().set("JobId", jobId).set("SourceRecord", record))
-        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
-        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));
-
-    PCollection<String> unmatchedTargetRecords = countMatches
-        .get(DatastreamToSpannerConstants.UNMATCHED_TARGET_RECORD_VALUES_TAG);
-
-    TableSchema targetSchema = new TableSchema().setFields(
-        Arrays.asList(
-            new TableFieldSchema().setName("JobId").setType("STRING"),
-            new TableFieldSchema().setName("TargetRecord").setType("STRING")
-        )
-    );
-
-    unmatchedTargetRecords.apply("WriteTargetUnmatchedToBQ", BigQueryIO.<String>write()
-        .to(String.format("%s:%s.%s", options.getProject(), "DatastreamSpannerValidator", "TargetUnmatchedRecords"))
-        .withSchema(targetSchema)
-        .withFormatFunction((String record) -> new TableRow().set("JobId", jobId).set("TargetRecord", record))
-        .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
-        .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));
-
 
     // Execute the pipeline and return the result.
     return pipeline.run();
