@@ -13,7 +13,7 @@ import org.apache.beam.sdk.values.KV;
  */
 public class SamplePartitionsForSplitsFn extends DoFn<KV<String, Iterable<Partition>>, KV<String, Iterable<Partition>>> {
 
-  private static final int MAX_SPLIT_POINTS = 100;
+  private static final int MAX_SPLIT_POINTS = 5;
 
   @ProcessElement
   public void processElement(ProcessContext c) {

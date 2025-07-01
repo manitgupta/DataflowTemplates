@@ -33,7 +33,6 @@ import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaStringOverri
 import com.google.cloud.teleport.v2.spanner.migrations.utils.SessionFileReader;
 import com.google.cloud.teleport.v2.templates.DataStreamToSpanner.Options;
 import com.google.cloud.teleport.v2.templates.datastream.DatastreamConstants;
-import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
 import com.google.common.base.Strings;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -60,10 +59,11 @@ import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionTuple;
+import org.apache.beam.sdk.values.PCollectionView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -662,21 +662,6 @@ public class DataStreamToSpanner {
                     .setMaxRpcTimeout(org.threeten.bp.Duration.ofMinutes(4))
                     .setMaxAttempts(1)
                     .build());
-    SpannerConfig shadowTableSpannerConfig = getShadowTableSpannerConfig(options);
-    /* Process information schema
-     * 1) Read information schema from destination Cloud Spanner database
-     * 2) Check if shadow tables are present and create if necessary
-     * 3) Return new information schema
-     */
-    PCollectionTuple ddlTuple =
-        pipeline.apply(
-            "Process Information Schema",
-            new ProcessInformationSchema(
-                spannerConfig,
-                shadowTableSpannerConfig,
-                options.getShouldCreateShadowTables(),
-                options.getShadowTablePrefix(),
-                options.getDatastreamSourceType()));
 
     spannerConfig =
         SpannerServiceFactoryImpl.createSpannerService(
@@ -818,8 +803,12 @@ public class DataStreamToSpanner {
     PCollection<KV<String, Iterable<Partition>>> sampledPartitions =
         partitionsByTable.apply("SamplePartitionsForSplits", ParDo.of(new SamplePartitionsForSplitsFn()));
 
-    PCollection<Void> splitsCreatedSignal = sampledPartitions.apply("CreateSpannerSplits",
-        ParDo.of(new CreateSpannerSplitsFn(options.getProjectId(), options.getInstanceId(), options.getDatabaseId())));
+    final PCollectionView<List<KV<String, Iterable<Partition>>>> allSampledPartitionsView =
+        sampledPartitions.apply("ViewAsList", View.asList());
+
+    PCollection<Void> splitsCreatedSignal = pipeline.apply("CreateTrigger", Create.of("trigger")).apply("CreateSpannerSplits",
+        ParDo.of(new CreateSpannerSplitsFn(options.getProjectId(), options.getInstanceId(), options.getDatabaseId(), allSampledPartitionsView))
+            .withSideInputs(allSampledPartitionsView));
 
     // 3. Fetch data for each partition
     PCollection<SourceRecord> sourceRecords = partitions
