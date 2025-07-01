@@ -48,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
@@ -57,7 +58,6 @@ import org.apache.beam.sdk.io.gcp.spanner.ReadOperation;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerServiceFactoryImpl;
-import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -69,6 +69,7 @@ import org.apache.beam.sdk.transforms.FlatMapElements;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.join.CoGbkResult;
 import org.apache.beam.sdk.transforms.join.CoGroupByKey;
@@ -720,12 +721,6 @@ public class DataStreamToSpanner {
         SpannerIO.readAll().withSpannerConfig(spannerConfig)
     );
 
-
-    JdbcIO.DataSourceConfiguration dataSourceConfig = JdbcIO.DataSourceConfiguration.create(
-            "com.mysql.cj.jdbc.Driver", "jdbc:mysql://34.132.139.144:3306/person")
-        .withUsername("hbuser")
-        .withPassword("hbpwd");
-
     List<KV<String, String>> tablesToProcess = Arrays.asList(
         KV.of("person1", "ID"),
         KV.of("person2", "ID"),
@@ -746,7 +741,87 @@ public class DataStreamToSpanner {
         KV.of("person17", "ID"),
         KV.of("person18", "ID"),
         KV.of("person19", "ID"),
-        KV.of("person20", "ID")
+        KV.of("person20", "ID"),
+        KV.of("person21", "ID"),
+        KV.of("person22", "ID"),
+        KV.of("person23", "ID"),
+        KV.of("person24", "ID"),
+        KV.of("person25", "ID"),
+        KV.of("person26", "ID"),
+        KV.of("person27", "ID"),
+        KV.of("person28", "ID"),
+        KV.of("person29", "ID"),
+        KV.of("person30", "ID"),
+        KV.of("person31", "ID"),
+        KV.of("person32", "ID"),
+        KV.of("person33", "ID"),
+        KV.of("person34", "ID"),
+        KV.of("person35", "ID"),
+        KV.of("person36", "ID"),
+        KV.of("person37", "ID"),
+        KV.of("person38", "ID"),
+        KV.of("person39", "ID"),
+        KV.of("person40", "ID"),
+        KV.of("person41", "ID"),
+        KV.of("person42", "ID"),
+        KV.of("person43", "ID"),
+        KV.of("person44", "ID"),
+        KV.of("person45", "ID"),
+        KV.of("person46", "ID"),
+        KV.of("person47", "ID"),
+        KV.of("person48", "ID"),
+        KV.of("person49", "ID"),
+        KV.of("person50", "ID"),
+        KV.of("person51", "ID"),
+        KV.of("person52", "ID"),
+        KV.of("person53", "ID"),
+        KV.of("person54", "ID"),
+        KV.of("person55", "ID"),
+        KV.of("person56", "ID"),
+        KV.of("person57", "ID"),
+        KV.of("person58", "ID"),
+        KV.of("person59", "ID"),
+        KV.of("person60", "ID"),
+        KV.of("person61", "ID"),
+        KV.of("person62", "ID"),
+        KV.of("person63", "ID"),
+        KV.of("person64", "ID"),
+        KV.of("person65", "ID"),
+        KV.of("person66", "ID"),
+        KV.of("person67", "ID"),
+        KV.of("person68", "ID"),
+        KV.of("person69", "ID"),
+        KV.of("person70", "ID"),
+        KV.of("person71", "ID"),
+        KV.of("person72", "ID"),
+        KV.of("person73", "ID"),
+        KV.of("person74", "ID"),
+        KV.of("person75", "ID"),
+        KV.of("person76", "ID"),
+        KV.of("person77", "ID"),
+        KV.of("person78", "ID"),
+        KV.of("person79", "ID"),
+        KV.of("person80", "ID"),
+        KV.of("person81", "ID"),
+        KV.of("person82", "ID"),
+        KV.of("person83", "ID"),
+        KV.of("person84", "ID"),
+        KV.of("person85", "ID"),
+        KV.of("person86", "ID"),
+        KV.of("person87", "ID"),
+        KV.of("person88", "ID"),
+        KV.of("person89", "ID"),
+        KV.of("person90", "ID"),
+        KV.of("person91", "ID"),
+        KV.of("person92", "ID"),
+        KV.of("person93", "ID"),
+        KV.of("person94", "ID"),
+        KV.of("person95", "ID"),
+        KV.of("person96", "ID"),
+        KV.of("person97", "ID"),
+        KV.of("person98", "ID"),
+        KV.of("person99", "ID"),
+        KV.of("person100", "ID")
     );
 
     Map<String, String> tableToPartitionColumnMap = tablesToProcess.stream()
@@ -761,13 +836,24 @@ public class DataStreamToSpanner {
     //     ParDo.of(new GeneratePartitionsDoFn(dataSourceConfig)))
     //     .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
 
+    // JdbcIO.DataSourceConfiguration dataSourceConfig = JdbcIO.DataSourceConfiguration.create(
+    //         "com.mysql.cj.jdbc.Driver", "jdbc:mysql://34.132.139.144:3306/person")
+    //     .withUsername("hbuser")
+    //     .withPassword("hbpwd");
+
+    SerializableFunction<Void, DataSource> hikariDataSourceFn = HikariPoolableDataSourceProvider.of(
+        "jdbc:mysql://35.238.247.77:3306/person?autoReconnect=true&allowMultiQueries=true&maxReconnects=50",
+        "hbuser",
+        "hbpwd",
+        "com.mysql.cj.jdbc.Driver", 50);
+
     PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
-            ParDo.of(new GeneratePartitionsFastFn(dataSourceConfig, "person")))
+            ParDo.of(new GeneratePartitionsFastFn(hikariDataSourceFn, "person")))
         .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
 
     // 3. Fetch data for each partition
     PCollection<SourceRecord> sourceRecords = partitions.apply("FetchPartitionData",
-        ParDo.of(new FetchPartitionDataDoFn(dataSourceConfig, tableToPartitionColumnMap)));
+        ParDo.of(new FetchPartitionDataDoFn(hikariDataSourceFn, tableToPartitionColumnMap)));
     /*
      * Stage 5: Convert source and spanner records read to hashes
      */

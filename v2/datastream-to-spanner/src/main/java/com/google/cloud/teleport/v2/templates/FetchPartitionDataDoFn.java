@@ -7,8 +7,8 @@ import java.sql.ResultSetMetaData;
 import java.util.HashMap;
 import java.util.Map;
 import javax.sql.DataSource;
-import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.KV;
 
 /**
@@ -16,19 +16,19 @@ import org.apache.beam.sdk.values.KV;
  */
 public class FetchPartitionDataDoFn extends DoFn<KV<String, Partition>, SourceRecord> {
 
-  private final JdbcIO.DataSourceConfiguration dataSourceConfiguration;
+  private final SerializableFunction<Void, DataSource> hikariPoolableDataSourceProvider;
   // Map<TableName, PartitionColumnName>
   private final Map<String, String> tableToPartitionColumn;
   private transient DataSource dataSource;
 
-  public FetchPartitionDataDoFn(JdbcIO.DataSourceConfiguration dataSourceConfiguration, Map<String, String> tableToPartitionColumn) {
-    this.dataSourceConfiguration = dataSourceConfiguration;
+  public FetchPartitionDataDoFn(SerializableFunction<Void, DataSource> hikariPoolableDataSourceProvider, Map<String, String> tableToPartitionColumn) {
+    this.hikariPoolableDataSourceProvider = hikariPoolableDataSourceProvider;
     this.tableToPartitionColumn = tableToPartitionColumn;
   }
 
   @Setup
   public void setup() {
-    dataSource = dataSourceConfiguration.buildDatasource();
+    dataSource = hikariPoolableDataSourceProvider.apply(null);
   }
 
   @ProcessElement

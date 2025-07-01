@@ -6,8 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import javax.sql.DataSource;
-import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.KV;
 
 /**
@@ -15,11 +15,11 @@ import org.apache.beam.sdk.values.KV;
  */
 public class GeneratePartitionsFastFn extends DoFn<KV<String, String>, KV<String, Partition>> {
 
-  private final JdbcIO.DataSourceConfiguration dataSourceConfiguration;
+  private final SerializableFunction<Void, DataSource> hikariPoolableDataSourceProvider;
   private final String databaseName; // Required for INFORMATION_SCHEMA query
 
-  public GeneratePartitionsFastFn(JdbcIO.DataSourceConfiguration dataSourceConfiguration, String databaseName) {
-    this.dataSourceConfiguration = dataSourceConfiguration;
+  public GeneratePartitionsFastFn(SerializableFunction<Void, DataSource> hikariPoolableDataSourceProvider, String databaseName) {
+    this.hikariPoolableDataSourceProvider = hikariPoolableDataSourceProvider;
     this.databaseName = databaseName;
   }
 
@@ -27,7 +27,7 @@ public class GeneratePartitionsFastFn extends DoFn<KV<String, String>, KV<String
 
   @Setup
   public void setup() {
-    dataSource = dataSourceConfiguration.buildDatasource();
+    dataSource = hikariPoolableDataSourceProvider.apply(null);
   }
 
   @ProcessElement
