@@ -56,9 +56,11 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
@@ -810,8 +812,19 @@ public class DataStreamToSpanner {
             ParDo.of(new GeneratePartitionsFastFn(hikariDataSourceFn, "person")))
         .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
 
+    PCollection<KV<String, Iterable<Partition>>> partitionsByTable =
+        partitions.apply("GroupPartitions", GroupByKey.create());
+
+    PCollection<KV<String, Iterable<Partition>>> sampledPartitions =
+        partitionsByTable.apply("SamplePartitionsForSplits", ParDo.of(new SamplePartitionsForSplitsFn()));
+
+    PCollection<Void> splitsCreatedSignal = sampledPartitions.apply("CreateSpannerSplits",
+        ParDo.of(new CreateSpannerSplitsFn(options.getProjectId(), options.getInstanceId(), options.getDatabaseId())));
+
     // 3. Fetch data for each partition
-    PCollection<SourceRecord> sourceRecords = partitions.apply("FetchPartitionData",
+    PCollection<SourceRecord> sourceRecords = partitions
+        .apply("WaitForSplits", Wait.on(splitsCreatedSignal))
+        .apply("FetchPartitionData",
         ParDo.of(new FetchPartitionDataDoFn(hikariDataSourceFn, tableToPartitionColumnMap)));
 
     PCollection<Mutation> mutations = sourceRecords.apply("ConvertToMutations",
