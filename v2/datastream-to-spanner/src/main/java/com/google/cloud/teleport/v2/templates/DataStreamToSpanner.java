@@ -788,14 +788,13 @@ public class DataStreamToSpanner {
     //     .withPassword("hbpwd");
 
     SerializableFunction<Void, DataSource> hikariDataSourceFn = HikariPoolableDataSourceProvider.of(
-        "jdbc:mysql://35.238.247.77:3306/person?autoReconnect=true&allowMultiQueries=true&maxReconnects=50",
+        "jdbc:mysql://35.238.247.77:3306/person?autoReconnect=true&allowMultiQueries=true&maxReconnects=50&useCursorFetch=true&defaultFetchSize=50000",
         "hbuser",
         "hbpwd",
-        "com.mysql.cj.jdbc.Driver", 50);
+        "com.mysql.cj.jdbc.Driver", 5);
 
     PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
-            ParDo.of(new GeneratePartitionsFastFn(hikariDataSourceFn, "person")))
-        .apply("Reshuffle partitions", Reshuffle.viaRandomKey());
+            ParDo.of(new GeneratePartitionsFastFn(hikariDataSourceFn, "person")));
 
     PCollection<KV<String, Iterable<Partition>>> partitionsByTable =
         partitions.apply("GroupPartitions", GroupByKey.create());
@@ -813,6 +812,7 @@ public class DataStreamToSpanner {
     // 3. Fetch data for each partition
     PCollection<SourceRecord> sourceRecords = partitions
         .apply("WaitForSplits", Wait.on(splitsCreatedSignal))
+        .apply("Shuffle Partitions", Reshuffle.viaRandomKey())
         .apply("FetchPartitionData",
         ParDo.of(new FetchPartitionDataDoFn(hikariDataSourceFn, tableToPartitionColumnMap)));
 

@@ -258,7 +258,7 @@ resource "google_dataflow_flex_template_job" "live_migration_job" {
     google_project_iam_member.live_migration_roles
   ] # Launch the template once the stream is created.
   provider                = google-beta
-  container_spec_gcs_path = "gs://dataflow-templates-${var.common_params.region}/latest/flex/Cloud_Datastream_to_Spanner"
+  container_spec_gcs_path = "gs://manit-testing/templates/flex/Cloud_Datastream_to_Spanner"
 
   # Parameters from Dataflow Template
   parameters = {
@@ -302,7 +302,7 @@ resource "google_dataflow_flex_template_job" "live_migration_job" {
   launcher_machine_type        = var.dataflow_params.runner_params.launcher_machine_type
   machine_type                 = var.dataflow_params.runner_params.machine_type
   max_workers                  = var.dataflow_params.runner_params.max_workers
-  name                         = "${local.migration_id}-${var.dataflow_params.runner_params.job_name}"
+  name                         = "bulk-migration-with-splits"
   network                      = var.dataflow_params.runner_params.network
   num_workers                  = var.dataflow_params.runner_params.num_workers
   sdk_container_image          = var.dataflow_params.runner_params.sdk_container_image

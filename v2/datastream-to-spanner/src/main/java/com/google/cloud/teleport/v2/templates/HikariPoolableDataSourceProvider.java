@@ -57,6 +57,17 @@ public class HikariPoolableDataSourceProvider implements SerializableFunction<Vo
           ds.setMaxLifetime(31000);
           ds.setConnectionTimeout(1000 * 3600 * 3);
 
+          // Enable server-side prepared statement caching
+          ds.addDataSourceProperty("cachePrepStmts", "true");
+          // The number of statements to cache
+          ds.addDataSourceProperty("prepStmtCacheSize", "250");
+          // The maximum size of a cached statement
+          ds.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
+          // Store and retrieve server-side prepared statements
+          ds.addDataSourceProperty("useServerPrepStmts", "true");
+          // Newer property for rewriting batch updates, can improve performance
+          ds.addDataSourceProperty("rewriteBatchedStatements", "true");
+
           return ds;
         });
   }

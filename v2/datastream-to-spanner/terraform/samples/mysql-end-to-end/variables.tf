@@ -91,7 +91,7 @@ variable "dataflow_params" {
     runner_params = object({
       additional_experiments = optional(set(string), [
         "enable_google_cloud_profiler", "enable_stackdriver_agent_metrics",
-        "disable_runner_v2", "enable_google_cloud_heap_sampling"
+        "disable_runner_v2", "enable_google_cloud_heap_sampling","min_num_workers=20"
       ])
       autoscaling_algorithm        = optional(string)
       enable_streaming_engine      = optional(bool, true)
