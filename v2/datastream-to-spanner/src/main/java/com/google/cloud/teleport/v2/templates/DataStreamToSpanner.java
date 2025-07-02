@@ -788,10 +788,10 @@ public class DataStreamToSpanner {
     //     .withPassword("hbpwd");
 
     SerializableFunction<Void, DataSource> hikariDataSourceFn = HikariPoolableDataSourceProvider.of(
-        "jdbc:mysql://35.238.247.77:3306/person?autoReconnect=true&allowMultiQueries=true&maxReconnects=50&useCursorFetch=true&defaultFetchSize=50000",
+        "jdbc:mysql://35.238.247.77:3306/person?autoReconnect=true&maxReconnects=100",
         "hbuser",
         "hbpwd",
-        "com.mysql.cj.jdbc.Driver", 5);
+        "com.mysql.cj.jdbc.Driver", 16);
 
     PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
             ParDo.of(new GeneratePartitionsFastFn(hikariDataSourceFn, "person")));

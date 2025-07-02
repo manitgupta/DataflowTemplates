@@ -1,5 +1,12 @@
 package com.google.cloud.teleport.v2.templates;
 
+import com.google.cloud.spanner.DatabaseClient;
+import com.google.cloud.spanner.DatabaseId;
+import com.google.cloud.spanner.ReadContext;
+import com.google.cloud.spanner.ResultSet;
+import com.google.cloud.spanner.Spanner;
+import com.google.cloud.spanner.SpannerOptions;
+import com.google.cloud.spanner.Statement;
 import com.google.cloud.spanner.admin.database.v1.DatabaseAdminClient;
 import com.google.protobuf.ListValue;
 import com.google.protobuf.Value;
@@ -36,6 +43,26 @@ public class CreateSpannerSplitsFn extends DoFn<String, Void> {
 
   @ProcessElement
   public void processElement(ProcessContext c) throws Exception {
+
+    SpannerOptions options = SpannerOptions.newBuilder().setProjectId(projectId).build();
+    Spanner spanner = options.getService();
+    DatabaseId dbId = DatabaseId.of(projectId, instanceId, databaseId);
+    DatabaseClient dbClient = spanner.getDatabaseClient(dbId);
+    Statement statement = Statement.of("SELECT COUNT(*) FROM SPANNER_SYS.USER_SPLIT_POINTS");
+    try (ReadContext readOperation = dbClient.singleUse()) {
+      ResultSet resultSet = readOperation.executeQuery(statement);
+      long existingSplitCount = 0;
+      while (resultSet.next()) {
+        existingSplitCount = resultSet.getLong(0);
+      }
+      if (existingSplitCount > 0) {
+        LOG.info("Found {} existing user-defined split points. Skipping creation.",
+            existingSplitCount);
+        return;
+      }
+    } finally {
+      spanner.close();
+    }
     List<KV<String, Iterable<Partition>>> allSampledPartitions = c.sideInput(
         allSampledPartitionsView);
     for (KV<String, Iterable<Partition>> tablePartitions : allSampledPartitions) {

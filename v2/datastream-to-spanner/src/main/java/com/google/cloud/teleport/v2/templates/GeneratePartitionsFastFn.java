@@ -52,8 +52,6 @@ public class GeneratePartitionsFastFn extends DoFn<KV<String, String>, KV<String
       }
     }
 
-    approximateCount = (long) (approximateCount * 1.3); //scale approximate value by 30% since it may be stale.
-
     // --- Step 2: Get min and max values (this is usually fast on an indexed column) ---
     String minMaxQuery = String.format("SELECT MIN(%s), MAX(%s) FROM %s", partitionColumn, partitionColumn, tableName);
     try (Connection conn = dataSource.getConnection();
