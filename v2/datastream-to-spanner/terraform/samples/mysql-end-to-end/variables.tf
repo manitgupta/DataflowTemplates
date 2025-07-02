@@ -91,14 +91,14 @@ variable "dataflow_params" {
     runner_params = object({
       additional_experiments = optional(set(string), [
         "enable_google_cloud_profiler", "enable_stackdriver_agent_metrics",
-        "disable_runner_v2", "enable_google_cloud_heap_sampling","min_num_workers=25", "enable_dynamic_thread_scaling"
+        "enable_google_cloud_heap_sampling","min_num_workers=20", "enable_dynamic_thread_scaling"
       ])
       autoscaling_algorithm        = optional(string)
       enable_streaming_engine      = optional(bool, true)
       kms_key_name                 = optional(string)
       labels                       = optional(map(string))
       launcher_machine_type        = optional(string)
-      machine_type                 = optional(string, "n2-standard-8")
+      machine_type                 = optional(string, "n2-standard-2")
       max_workers                  = number
       job_name                     = optional(string, "live-migration-job")
       network                      = optional(string)

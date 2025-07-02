@@ -302,7 +302,7 @@ resource "google_dataflow_flex_template_job" "live_migration_job" {
   launcher_machine_type        = var.dataflow_params.runner_params.launcher_machine_type
   machine_type                 = var.dataflow_params.runner_params.machine_type
   max_workers                  = var.dataflow_params.runner_params.max_workers
-  name                         = "bulk-migration-with-splits"
+  name                         = "test-migration-job"
   network                      = var.dataflow_params.runner_params.network
   num_workers                  = var.dataflow_params.runner_params.num_workers
   sdk_container_image          = var.dataflow_params.runner_params.sdk_container_image

@@ -791,7 +791,7 @@ public class DataStreamToSpanner {
         "jdbc:mysql://35.238.247.77:3306/person?autoReconnect=true&maxReconnects=100",
         "hbuser",
         "hbpwd",
-        "com.mysql.cj.jdbc.Driver", 16);
+        "com.mysql.cj.jdbc.Driver", options.getDlqRetryMinutes());
 
     PCollection<KV<String, Partition>> partitions = tables.apply("GeneratePartitions",
             ParDo.of(new GeneratePartitionsFastFn(hikariDataSourceFn, "person")));
