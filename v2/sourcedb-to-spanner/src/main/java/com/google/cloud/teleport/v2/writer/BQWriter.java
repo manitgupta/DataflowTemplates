@@ -1,5 +1,6 @@
 package com.google.cloud.teleport.v2.writer;
 
+import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaMapper;
 import com.google.cloud.teleport.v2.templates.RowContext;
 import java.io.Serializable;
 import java.util.Map;
@@ -23,10 +24,13 @@ public class BQWriter implements Serializable {
 
   private final PCollectionView<Map<String, String>> bqSchemaView;
 
-  public BQWriter(String projectId, String datasetName, PCollectionView<Map<String, String>> bqSchemaView) {
+  private final ISchemaMapper schemaMapper;
+
+  public BQWriter(String projectId, String datasetName, PCollectionView<Map<String, String>> bqSchemaView, ISchemaMapper schemaMapper) {
     this.projectId = projectId;
     this.datasetName = datasetName;
     this.bqSchemaView = bqSchemaView;
+    this.schemaMapper = schemaMapper;
   }
 
   public WriteResult writeToBQ(PCollection<RowContext> rows) {
@@ -35,7 +39,7 @@ public class BQWriter implements Serializable {
         .to(new SerializableFunction<ValueInSingleWindow<RowContext>, TableDestination>() {
           @Override
           public TableDestination apply(ValueInSingleWindow<RowContext> input) {
-            String tableSpec = String.format("%s:%s.%s", projectId, datasetName, input.getValue().mutation().getTable());
+            String tableSpec = String.format("%s:%s.%s", projectId, datasetName, schemaMapper.getSpannerTableName("", input.getValue().row().tableName()));
             return new TableDestination(tableSpec, String.format("Destination for %s", tableSpec));
           }
         })

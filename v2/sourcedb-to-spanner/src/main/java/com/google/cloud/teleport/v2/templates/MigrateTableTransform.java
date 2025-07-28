@@ -108,7 +108,7 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
                             SourceDbToSpannerConstants.FILTERED_EVENT_TAG))));
 
     // Write to BQ
-    BQWriter bqWriter = new BQWriter(options.getProjectId(), options.getDatabaseId(), bqSchemaView);
+    BQWriter bqWriter = new BQWriter(options.getProjectId(), options.getDatabaseId(), bqSchemaView, schemaMapper);
     WriteResult writeResult = bqWriter.writeToBQ(
         transformationResult
             .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS));
