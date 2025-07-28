@@ -24,13 +24,13 @@ public class SourceDbToSpannerConstants {
   /** TAGS used for routing * */
 
   /* The tag for rows which transformed successfully */
-  public static final TupleTag<RowContext> ROW_TRANSFORMATION_SUCCESS = new TupleTag<>();
+  public static final TupleTag<RowContext> ROW_TRANSFORMATION_SUCCESS = new TupleTag<RowContext>() {};
 
   /* The tag for row which errors out during transformation */
-  public static final TupleTag<RowContext> ROW_TRANSFORMATION_ERROR = new TupleTag<>();
+  public static final TupleTag<RowContext> ROW_TRANSFORMATION_ERROR = new TupleTag<RowContext>() {};
 
   /* The tag for rows which were filtered based on custom transformation response. */
-  public static final TupleTag<RowContext> FILTERED_EVENT_TAG = new TupleTag<>();
+  public static final TupleTag<RowContext> FILTERED_EVENT_TAG = new TupleTag<RowContext>() {};
 
   /* Misc constants */
 

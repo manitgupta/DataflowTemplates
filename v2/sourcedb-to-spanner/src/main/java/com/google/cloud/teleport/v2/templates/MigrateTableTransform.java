@@ -111,7 +111,8 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
     BQWriter bqWriter = new BQWriter(options.getProjectId(), options.getDatabaseId(), bqSchemaView, schemaMapper);
     WriteResult writeResult = bqWriter.writeToBQ(
         transformationResult
-            .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS));
+            .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
+            .setCoder(SerializableCoder.of(RowContext.class)));
 
     String outputDirectory = options.getOutputDirectory();
     if (!outputDirectory.endsWith("/")) {
