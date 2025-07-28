@@ -15,6 +15,7 @@
  */
 package com.google.cloud.teleport.v2.templates;
 
+import com.google.api.services.bigquery.model.TableRow;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.teleport.v2.source.reader.io.row.SourceRow;
@@ -33,6 +34,9 @@ public abstract class RowContext implements Serializable {
   public abstract Mutation mutation();
 
   @Nullable
+  public abstract TableRow tableRow();
+
+  @Nullable
   public abstract Throwable err();
 
   public static Builder builder() {
@@ -45,6 +49,8 @@ public abstract class RowContext implements Serializable {
     public abstract Builder setRow(SourceRow row);
 
     public abstract Builder setMutation(Mutation m);
+
+    public abstract Builder setTableRow(TableRow tr);
 
     public abstract Builder setErr(Throwable t);
 

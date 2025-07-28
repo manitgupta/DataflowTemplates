@@ -24,21 +24,23 @@ import com.google.cloud.teleport.v2.source.reader.io.transform.ReaderTransform;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.CustomTransformation;
-import com.google.cloud.teleport.v2.transformer.SourceRowToMutationDoFn;
+import com.google.cloud.teleport.v2.transformer.SourceRowToTableRowDoFn;
+import com.google.cloud.teleport.v2.writer.BQWriter;
 import com.google.cloud.teleport.v2.writer.DeadLetterQueue;
-import com.google.cloud.teleport.v2.writer.SpannerWriter;
 import java.util.Arrays;
 import java.util.Map;
 import org.apache.beam.repackaged.core.org.apache.commons.lang3.StringUtils;
 import org.apache.beam.sdk.coders.SerializableCoder;
-import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
+import org.apache.beam.sdk.io.gcp.bigquery.TableDestination;
+import org.apache.beam.sdk.io.gcp.bigquery.WriteResult;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
-import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
+import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.TupleTagList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +57,7 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
   private SQLDialect sqlDialect;
 
   private Map<String, String> srcTableToShardIdColumnMap;
+  private PCollectionView<Map<String, String>> bqSchemaView;
 
   public MigrateTableTransform(
       SourceDbToSpannerOptions options,
@@ -63,7 +66,8 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
       ISchemaMapper schemaMapper,
       ReaderImpl reader,
       String shardId,
-      Map<String, String> srcTableToShardIdColumnMap) {
+      Map<String, String> srcTableToShardIdColumnMap,
+      PCollectionView<Map<String, String>> bqSchemaView) {
     this.options = options;
     this.spannerConfig = spannerConfig;
     this.ddl = ddl;
@@ -72,6 +76,7 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
     this.shardId = StringUtils.isEmpty(shardId) ? "" : shardId;
     this.sqlDialect = SQLDialect.valueOf(options.getSourceDbDialect());
     this.srcTableToShardIdColumnMap = srcTableToShardIdColumnMap;
+    this.bqSchemaView = bqSchemaView;
   }
 
   @Override
@@ -88,9 +93,9 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
             .build();
 
     // Transform source data to Spanner Compatible Data
-    SourceRowToMutationDoFn transformDoFn =
-        SourceRowToMutationDoFn.create(
-            schemaMapper, customTransformation, options.getInsertOnlyModeForSpannerMutations());
+    SourceRowToTableRowDoFn transformDoFn =
+        SourceRowToTableRowDoFn.create(
+            schemaMapper, customTransformation);
     PCollectionTuple transformationResult =
         sourceRows.apply(
             "Transform",
@@ -102,32 +107,16 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
                             SourceDbToSpannerConstants.ROW_TRANSFORMATION_ERROR,
                             SourceDbToSpannerConstants.FILTERED_EVENT_TAG))));
 
-    // Write to Spanner
-    SpannerWriter writer =
-        new SpannerWriter(spannerConfig, options.getBatchSizeForSpannerMutations());
-    SpannerWriteResult spannerWriteResult =
-        writer.writeToSpanner(
-            transformationResult
-                .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
-                .setCoder(SerializableCoder.of(RowContext.class)));
-    PCollection<MutationGroup> failedMutations = spannerWriteResult.getFailedMutations();
+    // Write to BQ
+    BQWriter bqWriter = new BQWriter(options.getProjectId(), options.getDatabaseId(), bqSchemaView);
+    WriteResult writeResult = bqWriter.writeToBQ(
+        transformationResult
+            .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS));
 
     String outputDirectory = options.getOutputDirectory();
     if (!outputDirectory.endsWith("/")) {
       outputDirectory += "/";
     }
-
-    // Dump Failed rows to DLQ
-    String dlqDirectory = outputDirectory + "dlq/severe/" + shardId;
-    LOG.info("DLQ directory: {}", dlqDirectory);
-    DeadLetterQueue dlq =
-        DeadLetterQueue.create(
-            dlqDirectory, ddl, srcTableToShardIdColumnMap, sqlDialect, this.schemaMapper);
-    dlq.failedMutationsToDLQ(failedMutations);
-    dlq.failedTransformsToDLQ(
-        transformationResult
-            .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_ERROR)
-            .setCoder(SerializableCoder.of(RowContext.class)));
 
     /*
      * Write filtered records to GCS
@@ -141,6 +130,21 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
         transformationResult
             .get(SourceDbToSpannerConstants.FILTERED_EVENT_TAG)
             .setCoder(SerializableCoder.of(RowContext.class)));
-    return spannerWriteResult.getOutput();
+
+    PCollection<TableDestination> successfulTableLoads = writeResult.getSuccessfulTableLoads();
+
+    return successfulTableLoads.apply(
+        "LogSuccessfulLoads",
+        ParDo.of(new DoFn<TableDestination, Void>() {
+          @ProcessElement
+          public void processElement(@Element TableDestination destination, ProcessContext c) {
+            LOG.info(
+                "✅ Successfully loaded tables at timestamp: {}. Destination: {}",
+                c.timestamp(),
+                destination.getTableSpec()
+            );
+          }
+        })
+    );
   }
 }

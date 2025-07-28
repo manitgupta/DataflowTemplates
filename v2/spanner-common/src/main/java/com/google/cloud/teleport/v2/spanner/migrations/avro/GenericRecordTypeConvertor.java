@@ -217,6 +217,94 @@ public class GenericRecordTypeConvertor {
     return result;
   }
 
+  public Map<String, Object> transformEventForBQ(GenericRecord record, String srcTableName)
+      throws InvalidTransformationException {
+    Map<String, Object> result = new HashMap<>();
+    result = populateCustomTransformationsForBQ(result, record, srcTableName);
+    // If the row needs to be filtered.
+    if (result == null) {
+      LOG.debug(
+          "Filtered out row based on Customer Transformation response for table {}, record {}",
+          srcTableName,
+          record);
+      return null;
+    }
+    String spannerTableName = schemaMapper.getSpannerTableName(namespace, srcTableName);
+    List<String> spannerColNames = schemaMapper.getSpannerColumns(namespace, spannerTableName);
+    // This is null/blank for identity/override/non-sharded cases.
+    String shardIdCol = schemaMapper.getShardIdColumnName(namespace, spannerTableName);
+    for (String spannerColName : spannerColNames) {
+      try {
+        // Skip if the column was already populated by custom transformation.
+        if (result.containsKey(spannerColName)) {
+          continue;
+        }
+        // If current column is migration shard id, populate value.
+        if (spannerColName.equals(shardIdCol)) {
+          populateShardIdForBQ(result, shardIdCol);
+          continue;
+        }
+
+        // For session based mapper, populate synthetic primary key with UUID. For identity mapper,
+        // the schemaMapper returns null.
+        if (spannerColName.equals(
+            schemaMapper.getSyntheticPrimaryKeyColName(namespace, spannerTableName))) {
+          result.put(spannerColName, Value.string(getUUID()));
+          continue;
+        }
+
+        // If a Spanner column does not exist in the source data, there are several possible
+        // explanations:
+        // 1. The column might be an auto-value column in Spanner, such as generated column,
+        // default, auto-gen keys.
+        // 2. Column was supposed to be populated by custom transform, but user error missed this
+        // column during custom transform.
+        // 3. The column might have been accidentally left over in the Spanner column without the
+        // right handling.
+        // In all of these cases, we omit this column from the Spanner mutation and user errors will
+        // fail on Spanner. The writer's Dead Letter Queue (DLQ) is responsible for catching any
+        // misconfigurations  where a required column is missing.
+        if (!(schemaMapper.colExistsAtSource(namespace, spannerTableName, spannerColName)
+            && record.hasField(
+            schemaMapper.getSourceColumnName(namespace, spannerTableName, spannerColName)))) {
+          continue;
+        }
+
+        String srcColName =
+            schemaMapper.getSourceColumnName(namespace, spannerTableName, spannerColName);
+        result.put(spannerColName, record.get(srcColName));
+      } catch (NullPointerException e) {
+        throw e;
+      } catch (IllegalArgumentException e) {
+        throw e;
+      } catch (Exception e) {
+        throw new RuntimeException(
+            String.format("Unable to convert spanner value for spanner col: %s", spannerColName),
+            e);
+      }
+    }
+    return result;
+  }
+
+  private Map<String, Object> populateCustomTransformationsForBQ(
+      Map<String, Object> result, GenericRecord record, String srcTableName)
+      throws InvalidTransformationException {
+    if (customTransformer == null) {
+      return result;
+    }
+    LOG.debug("Populating custom transformation for table {}: {}", srcTableName, result);
+    String spannerTableName = schemaMapper.getSpannerTableName(namespace, srcTableName);
+    // TODO: verify if direct to object (Current) works the same as Object -> JsonNode-> Object
+    // (Live).
+    Map<String, Object> sourceRowMap = genericRecordToMap(record, srcTableName);
+    MigrationTransformationResponse migrationTransformationResponse =
+        getCustomTransformationResponse(sourceRowMap, srcTableName, shardId);
+    if (migrationTransformationResponse.isEventFiltered()) {
+      return null;
+    }
+    return migrationTransformationResponse.getResponseRow();
+  }
+
   private String getUUID() {
     return UUID.randomUUID().toString();
   }
@@ -411,6 +499,14 @@ public class GenericRecordTypeConvertor {
       return result;
     }
     result.put(shardIdCol, Value.string(shardId));
+    return result;
+  }
+
+  private Map<String, Object> populateShardIdForBQ(Map<String, Object> result, String shardIdCol) {
+    if (shardId == null || shardId.isBlank()) {
+      return result;
+    }
+    result.put(shardIdCol, shardId);
     return result;
   }
 

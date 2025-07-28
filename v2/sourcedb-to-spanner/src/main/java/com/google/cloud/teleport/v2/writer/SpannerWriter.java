@@ -60,7 +60,7 @@ public class SpannerWriter implements Serializable {
   }
 
   public SpannerWriteResult writeToSpanner(PCollection<RowContext> rows) {
-    LOG.info("initiating write to spanner");
+      LOG.info("initiating write to spanner");
     SpannerWriteResult writeResult =
         rows.apply(
                 "extractMutation",

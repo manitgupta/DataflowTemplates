@@ -15,6 +15,8 @@
  */
 package com.google.cloud.teleport.v2.templates;
 
+import com.google.api.services.bigquery.model.TableFieldSchema;
+import com.google.api.services.bigquery.model.TableSchema;
 import com.google.cloud.teleport.v2.options.OptionsToConfigBuilder;
 import com.google.cloud.teleport.v2.options.SourceDbToSpannerOptions;
 import com.google.cloud.teleport.v2.source.reader.ReaderImpl;
@@ -26,12 +28,17 @@ import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.SQLDi
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.IdentityMapper;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.Schema;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaFileOverridesBasedMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SchemaStringOverridesBasedMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SessionBasedMapper;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.SpannerColumnDefinition;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.SpannerTable;
 import com.google.cloud.teleport.v2.spanner.migrations.shard.Shard;
 import com.google.cloud.teleport.v2.spanner.migrations.spanner.SpannerSchema;
+import com.google.cloud.teleport.v2.spanner.migrations.utils.SessionFileReader;
 import com.google.common.annotations.VisibleForTesting;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,12 +47,16 @@ import java.util.stream.Collectors;
 import org.apache.beam.repackaged.core.org.apache.commons.lang3.StringUtils;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryHelpers;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
+import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.transforms.Wait.OnSignal;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionView;
 import org.checkerframework.checker.initialization.qual.Initialized;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.UnknownKeyFor;
@@ -184,6 +195,12 @@ public class PipelineController {
           configContainer.getSrcTableToShardIdColumnMap(
               tableSelector.getSchemaMapper(), spannerTables);
 
+      Map<String, String> bqSchemaMap = generateBQSchemaMap(options);
+
+      final PCollectionView<Map<String, String>> bqSchemaView = pipeline
+          .apply("CreateSchemaMap", Create.of(bqSchemaMap))
+          .apply("ViewAsMap", View.asMap());
+
       PCollection<Void> output =
           pipeline.apply(
               "Migrate" + suffix,
@@ -194,7 +211,8 @@ public class PipelineController {
                   tableSelector.getSchemaMapper(),
                   reader,
                   configContainer.getShardId(),
-                  srcTableToShardIdColumnMap));
+                  srcTableToShardIdColumnMap,
+                  bqSchemaView));
       levelVsOutputMap.put(currentLevel, output);
     }
 
@@ -205,6 +223,31 @@ public class PipelineController {
     pipeline.apply(
         "Increment_table_counters" + generateSuffix(configContainer.getShardId(), null),
         new IncrementTableCounter(tableCompletionMap, "", levelToSpannerTableList));
+  }
+
+  private static Map<String, String> generateBQSchemaMap(SourceDbToSpannerOptions options) {
+    boolean hasSessionFile =
+        options.getSessionFilePath() != null && !options.getSessionFilePath().equals("");
+    if(hasSessionFile) {
+      Schema schema = SessionFileReader.read(options.getSessionFilePath());
+      Map<String, String> schemaMap = new HashMap<>();
+      for (String tableName: schema.getSpSchema().keySet()) {
+        TableSchema tableSchema = new TableSchema();
+        SpannerTable table = schema.getSpSchema().get(tableName);
+        List<TableFieldSchema> tableFieldSchemaList = new ArrayList<>();
+        for (String colId: table.getColIds()) {
+          SpannerColumnDefinition spannerColumnDefinition = table.getColDefs().get(colId);
+          TableFieldSchema fieldSchema = new TableFieldSchema().setName(spannerColumnDefinition.getName()).setType(spannerColumnDefinition.getType().getName());
+          tableFieldSchemaList.add(fieldSchema);
+        }
+        tableSchema.setFields(tableFieldSchemaList);
+        schemaMap.put(String.format("%s:%s.%s", options.getProjectId(), options.getDatabaseId(), tableName),
+            BigQueryHelpers.toJsonString(tableSchema));
+      }
+      return schemaMap;
+    } else {
+      throw new RuntimeException("No session file found, session file is mandatory for writing to BQ!");
+    }
   }
 
   /**
