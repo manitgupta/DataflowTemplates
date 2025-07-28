@@ -1,6 +1,5 @@
 package com.google.cloud.teleport.v2.transformer;
 
-import com.google.api.services.bigquery.model.TableRow;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.teleport.v2.constants.MetricCounters;
 import com.google.cloud.teleport.v2.constants.SourceDbToSpannerConstants;
@@ -78,9 +77,9 @@ public abstract class SourceRowToTableRowDoFn extends DoFn<SourceRow, RowContext
             .output(RowContext.builder().setRow(sourceRow).build());
         return;
       }
-      TableRow tableRow = tableRowFromMap(values);
+      TempTableRow tableRow = tableRowFromMap(values);
       output.get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
-          .output(RowContext.builder().setTableRow(tableRow).build());
+          .output(RowContext.builder().setTempTableRow(tableRow).build());
     } catch (Exception e) {
       LOG.error("Error while processing element", e);
       transformerErrors.inc();
@@ -90,8 +89,8 @@ public abstract class SourceRowToTableRowDoFn extends DoFn<SourceRow, RowContext
     }
   }
 
-  private TableRow tableRowFromMap(Map<String, Object> values) {
-    TableRow row = new TableRow();
+  private TempTableRow tableRowFromMap(Map<String, Object> values) {
+    TempTableRow row = new TempTableRow();
     for (String spannerColName : values.keySet()) {
       Object value = values.get(spannerColName);
       row.set(spannerColName, value);

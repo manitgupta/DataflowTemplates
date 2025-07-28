@@ -1,5 +1,6 @@
 package com.google.cloud.teleport.v2.writer;
 
+import com.google.api.services.bigquery.model.TableRow;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaMapper;
 import com.google.cloud.teleport.v2.templates.RowContext;
 import java.io.Serializable;
@@ -43,7 +44,13 @@ public class BQWriter implements Serializable {
             return new TableDestination(tableSpec, String.format("Destination for %s", tableSpec));
           }
         })
-        .withFormatFunction((RowContext rowContext) -> rowContext.tableRow())
+        .withFormatFunction((RowContext rowContext) -> {
+          TableRow tableRow = new TableRow();
+          for (String colName: rowContext.tableRow().getInternalMap().keySet()) {
+            tableRow.set(colName, rowContext.tableRow().getInternalMap().get(colName));
+          }
+          return tableRow;
+        })
         .withSchemaFromView(bqSchemaView)
         .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
         .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND));

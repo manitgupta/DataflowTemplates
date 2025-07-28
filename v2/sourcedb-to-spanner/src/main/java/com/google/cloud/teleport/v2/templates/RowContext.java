@@ -15,10 +15,10 @@
  */
 package com.google.cloud.teleport.v2.templates;
 
-import com.google.api.services.bigquery.model.TableRow;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.teleport.v2.source.reader.io.row.SourceRow;
+import com.google.cloud.teleport.v2.transformer.TempTableRow;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
@@ -34,7 +34,7 @@ public abstract class RowContext implements Serializable {
   public abstract Mutation mutation();
 
   @Nullable
-  public abstract TableRow tableRow();
+  public abstract TempTableRow tableRow();
 
   @Nullable
   public abstract Throwable err();
@@ -50,7 +50,7 @@ public abstract class RowContext implements Serializable {
 
     public abstract Builder setMutation(Mutation m);
 
-    public abstract Builder setTableRow(TableRow tr);
+    public abstract Builder setTempTableRow(TempTableRow tr);
 
     public abstract Builder setErr(Throwable t);
 
