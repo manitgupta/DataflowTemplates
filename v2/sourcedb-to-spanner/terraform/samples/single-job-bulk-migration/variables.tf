@@ -181,3 +181,9 @@ variable "default_log_level" {
   description = "Default log level for Dataflow jobs (e.g., 'INFO', 'DEBUG')."
   default     = null
 }
+
+variable "fetch_size" {
+  type = string
+  description = "Number of rows to be fetched per page"
+  default = null
+}

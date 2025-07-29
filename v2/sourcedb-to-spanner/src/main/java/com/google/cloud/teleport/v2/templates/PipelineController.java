@@ -235,9 +235,9 @@ public class PipelineController {
     if(hasSessionFile) {
       Schema schema = SessionFileReader.read(sessionFilePath);
       Map<String, String> schemaMap = new HashMap<>();
-      for (String tableName: schema.getSpSchema().keySet()) {
+      for (String tableId: schema.getSpSchema().keySet()) {
         TableSchema tableSchema = new TableSchema();
-        SpannerTable table = schema.getSpSchema().get(tableName);
+        SpannerTable table = schema.getSpSchema().get(tableId);
         List<TableFieldSchema> tableFieldSchemaList = new ArrayList<>();
         for (String colId: table.getColIds()) {
           SpannerColumnDefinition spannerColumnDefinition = table.getColDefs().get(colId);
@@ -245,7 +245,7 @@ public class PipelineController {
           tableFieldSchemaList.add(fieldSchema);
         }
         tableSchema.setFields(tableFieldSchemaList);
-        schemaMap.put(String.format("%s:%s.%s", projectId, databaseId, tableName),
+        schemaMap.put(String.format("%s:%s.%s", projectId, databaseId, table.getName()),
             BigQueryHelpers.toJsonString(tableSchema));
       }
       return schemaMap;

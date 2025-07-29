@@ -48,7 +48,7 @@ import org.slf4j.LoggerFactory;
 public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>> {
   private static final Logger LOG = LoggerFactory.getLogger(MigrateTableTransform.class);
 
-  private SourceDbToSpannerOptions options;
+  private transient SourceDbToSpannerOptions options;
   private SpannerConfig spannerConfig;
   private Ddl ddl;
   private ISchemaMapper schemaMapper;
