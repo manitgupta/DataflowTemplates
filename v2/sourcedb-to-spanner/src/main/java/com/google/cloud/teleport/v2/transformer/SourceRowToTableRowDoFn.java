@@ -79,7 +79,7 @@ public abstract class SourceRowToTableRowDoFn extends DoFn<SourceRow, RowContext
       }
       TempTableRow tableRow = tableRowFromMap(values);
       output.get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
-          .output(RowContext.builder().setTempTableRow(tableRow).build());
+          .output(RowContext.builder().setTableRow(tableRow).build());
     } catch (Exception e) {
       LOG.error("Error while processing element", e);
       transformerErrors.inc();

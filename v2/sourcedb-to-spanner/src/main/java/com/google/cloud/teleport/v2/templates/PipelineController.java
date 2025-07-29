@@ -195,7 +195,11 @@ public class PipelineController {
           configContainer.getSrcTableToShardIdColumnMap(
               tableSelector.getSchemaMapper(), spannerTables);
 
-      Map<String, String> bqSchemaMap = generateBQSchemaMap(options);
+      String sessionFilePath = options.getSessionFilePath();
+      String projectId = options.getProjectId();
+      String databaseId = options.getDatabaseId();
+
+      Map<String, String> bqSchemaMap = generateBQSchemaMap(sessionFilePath, projectId, databaseId);
 
       final PCollectionView<Map<String, String>> bqSchemaView = pipeline
           .apply("CreateSchemaMap", Create.of(bqSchemaMap))
@@ -225,11 +229,11 @@ public class PipelineController {
         new IncrementTableCounter(tableCompletionMap, "", levelToSpannerTableList));
   }
 
-  private static Map<String, String> generateBQSchemaMap(SourceDbToSpannerOptions options) {
+  private static Map<String, String> generateBQSchemaMap(String sessionFilePath, String projectId, String databaseId) {
     boolean hasSessionFile =
-        options.getSessionFilePath() != null && !options.getSessionFilePath().equals("");
+        sessionFilePath != null && !sessionFilePath.equals("");
     if(hasSessionFile) {
-      Schema schema = SessionFileReader.read(options.getSessionFilePath());
+      Schema schema = SessionFileReader.read(sessionFilePath);
       Map<String, String> schemaMap = new HashMap<>();
       for (String tableName: schema.getSpSchema().keySet()) {
         TableSchema tableSchema = new TableSchema();
@@ -241,7 +245,7 @@ public class PipelineController {
           tableFieldSchemaList.add(fieldSchema);
         }
         tableSchema.setFields(tableFieldSchemaList);
-        schemaMap.put(String.format("%s:%s.%s", options.getProjectId(), options.getDatabaseId(), tableName),
+        schemaMap.put(String.format("%s:%s.%s", projectId, databaseId, tableName),
             BigQueryHelpers.toJsonString(tableSchema));
       }
       return schemaMap;

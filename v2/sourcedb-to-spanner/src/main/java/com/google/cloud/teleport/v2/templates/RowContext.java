@@ -50,7 +50,7 @@ public abstract class RowContext implements Serializable {
 
     public abstract Builder setMutation(Mutation m);
 
-    public abstract Builder setTempTableRow(TempTableRow tr);
+    public abstract Builder setTableRow(TempTableRow tr);
 
     public abstract Builder setErr(Throwable t);
 
