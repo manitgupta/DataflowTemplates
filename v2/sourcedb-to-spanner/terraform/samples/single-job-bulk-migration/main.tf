@@ -46,7 +46,7 @@ resource "google_dataflow_flex_template_job" "generated" {
     google_storage_bucket_object.session_file_object
   ]
   provider                = google-beta
-  container_spec_gcs_path = "gs://manit-testing/templates/flex/Sourcedb_to_Spanner_Flex"
+  container_spec_gcs_path = "gs://manit-testing-ck/templates/flex/Sourcedb_to_Spanner_Flex"
 
   parameters = {
     jdbcDriverJars                 = var.jdbc_driver_jars
