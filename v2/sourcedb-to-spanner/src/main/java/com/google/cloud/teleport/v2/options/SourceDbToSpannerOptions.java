@@ -415,4 +415,15 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
   String getFailureInjectionParameter();
 
   void setFailureInjectionParameter(String value);
+
+  @TemplateParameter.GcsWriteFolder(
+      order = 33,
+      optional = true,
+      description = "GCS directory for AVRO files",
+      helpText = "This directory is used to write the AVRO files of the records read from source.",
+      example = "gs://your-bucket/your-path")
+  @Default.String("")
+  String getGcsOutputDirectory();
+
+  void setGcsOutputDirectory(String value);
 }
