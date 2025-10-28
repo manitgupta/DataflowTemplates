@@ -19,6 +19,7 @@ import com.google.cloud.Timestamp;
 import java.io.Serializable;
 import java.util.Objects;
 import org.apache.avro.reflect.AvroEncode;
+import org.apache.avro.reflect.Nullable;
 import org.apache.beam.sdk.coders.DefaultCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.encoder.TimestampEncoding;
@@ -44,7 +45,10 @@ public class TrimmedShardedDataChangeRecord implements Serializable {
   private ModType modType;
   private long numberOfRecordsInTransaction;
   private String transactionTag;
-  private String shard;
+
+  @Nullable
+  private String shard; //the shard is initially NULL during pre-processing step
+
   private boolean isRetryRecord;
 
   private TrimmedShardedDataChangeRecord() {}
