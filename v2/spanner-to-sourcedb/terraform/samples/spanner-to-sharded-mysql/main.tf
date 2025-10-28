@@ -170,7 +170,7 @@ resource "google_dataflow_flex_template_job" "reverse_replication_job" {
     google_project_service.enabled_apis, google_project_iam_member.reverse_replication_roles, google_spanner_database.reverse_replication_metadata_database, null_resource.create_spanner_change_stream, google_pubsub_subscription.dlq_pubsub_subscription
   ] # Launch the template once the stream is created.
   provider                = google-beta
-  container_spec_gcs_path = "gs://dataflow-templates-${var.common_params.region}/latest/flex/Spanner_to_SourceDb"
+  container_spec_gcs_path = "gs://manitgupta-temp/templates/flex/Spanner_to_SourceDb"
 
   # Parameters from Dataflow Template
   parameters = {

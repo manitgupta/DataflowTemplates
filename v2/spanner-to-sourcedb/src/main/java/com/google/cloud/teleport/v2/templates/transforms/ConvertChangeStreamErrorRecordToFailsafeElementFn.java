@@ -33,7 +33,7 @@ public class ConvertChangeStreamErrorRecordToFailsafeElementFn
     String jsonRec = c.element();
     ChangeStreamErrorRecord record = gson.fromJson(jsonRec, ChangeStreamErrorRecord.class);
     FailsafeElement<String, String> failsafeElement =
-        FailsafeElement.of(record.getOriginalRecord(), record.getOriginalRecord());
+        FailsafeElement.of(record.getOriginalRecord(), "");
     failsafeElement.setErrorMessage(record.getErrorMessage());
     c.output(failsafeElement);
   }

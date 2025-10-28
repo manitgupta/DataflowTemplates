@@ -18,6 +18,10 @@ package com.google.cloud.teleport.v2.templates.changestream;
 import com.google.cloud.Timestamp;
 import java.io.Serializable;
 import java.util.Objects;
+import org.apache.avro.reflect.AvroEncode;
+import org.apache.beam.sdk.coders.DefaultCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
+import org.apache.beam.sdk.io.gcp.spanner.changestreams.encoder.TimestampEncoding;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.Mod;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.ModType;
 
@@ -26,7 +30,12 @@ import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.ModType;
  * this pipeline.
  */
 @SuppressWarnings("initialization.fields.uninitialized") // Avro requires the default constructor
-public class TrimmedShardedDataChangeRecord extends java.lang.Object implements Serializable {
+@DefaultCoder(AvroCoder.class)
+public class TrimmedShardedDataChangeRecord implements Serializable {
+
+  private static final long serialVersionUID = 1;
+
+  @AvroEncode(using = TimestampEncoding.class)
   private Timestamp commitTimestamp;
   private String serverTransactionId;
   private String recordSequence;
@@ -37,6 +46,8 @@ public class TrimmedShardedDataChangeRecord extends java.lang.Object implements 
   private String transactionTag;
   private String shard;
   private boolean isRetryRecord;
+
+  private TrimmedShardedDataChangeRecord() {}
 
   public TrimmedShardedDataChangeRecord(
       com.google.cloud.Timestamp commitTimestamp,

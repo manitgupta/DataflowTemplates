@@ -80,6 +80,7 @@ import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarLongCoder;
+import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.ResolveOptions.StandardResolveOptions;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerAccessor;
@@ -95,6 +96,7 @@ import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
@@ -703,7 +705,6 @@ public class SpannerToSourceDb {
                       spannerConfig)) // This emits PCollection<DataChangeRecord> which is Spanner
               // change
               // stream data
-              .apply("Reshuffle", Reshuffle.viaRandomKey())
               .apply("Filteration", ParDo.of(new FilterRecordsFn(options.getFiltrationMode())))
               .apply("Preprocess", ParDo.of(new PreprocessRecordsFn()))
               .setCoder(SerializableCoder.of(TrimmedShardedDataChangeRecord.class));
@@ -754,8 +755,8 @@ public class SpannerToSourceDb {
             // same
             .setCoder(
                 KvCoder.of(
-                    VarLongCoder.of(), SerializableCoder.of(TrimmedShardedDataChangeRecord.class)))
-            .apply("Reshuffle2", Reshuffle.of())
+                    VarLongCoder.of(), AvroCoder.of(TrimmedShardedDataChangeRecord.class)))
+            .apply(Reshuffle.<KV<Long, TrimmedShardedDataChangeRecord>>viaRandomKey().withNumBuckets(reshuffleBucketSize))
             .apply(
                 "Write to source",
                 new SourceWriterTransform(
