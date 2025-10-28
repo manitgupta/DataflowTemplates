@@ -77,7 +77,6 @@ import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOption
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.coders.KvCoder;
-import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarLongCoder;
 import org.apache.beam.sdk.extensions.avro.coders.AvroCoder;
@@ -685,8 +684,7 @@ public class SpannerToSourceDb {
         dlqJsonStrRecords
             .apply(
                 "Convert DLQ records to TrimmedShardedDataChangeRecord",
-                ParDo.of(new ConvertDlqRecordToTrimmedShardedDataChangeRecordFn()))
-            .setCoder(SerializableCoder.of(TrimmedShardedDataChangeRecord.class));
+                ParDo.of(new ConvertDlqRecordToTrimmedShardedDataChangeRecordFn()));
     PCollection<TrimmedShardedDataChangeRecord> mergedRecords = null;
 
     if (options.getFailureInjectionParameter() != null
@@ -706,13 +704,11 @@ public class SpannerToSourceDb {
               // change
               // stream data
               .apply("Filteration", ParDo.of(new FilterRecordsFn(options.getFiltrationMode())))
-              .apply("Preprocess", ParDo.of(new PreprocessRecordsFn()))
-              .setCoder(SerializableCoder.of(TrimmedShardedDataChangeRecord.class));
+              .apply("Preprocess", ParDo.of(new PreprocessRecordsFn()));
       mergedRecords =
           PCollectionList.of(changeRecordsFromDB)
               .and(dlqRecords)
-              .apply("Flatten", Flatten.pCollections())
-              .setCoder(SerializableCoder.of(TrimmedShardedDataChangeRecord.class));
+              .apply("Flatten", Flatten.pCollections());
     } else {
       mergedRecords = dlqRecords;
     }
