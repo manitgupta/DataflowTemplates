@@ -201,6 +201,7 @@ resource "google_dataflow_flex_template_job" "reverse_replication_job" {
 
   # Additional Job Configurations
   additional_experiments       = var.dataflow_params.runner_params.additional_experiments
+  additional_pipeline_options = var.dataflow_params.runner_params.additional_pipeline_options
   autoscaling_algorithm        = var.dataflow_params.runner_params.autoscaling_algorithm
   enable_streaming_engine      = var.dataflow_params.runner_params.enable_streaming_engine
   kms_key_name                 = var.dataflow_params.runner_params.kms_key_name

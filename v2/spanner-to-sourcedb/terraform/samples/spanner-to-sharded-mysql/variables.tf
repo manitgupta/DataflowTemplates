@@ -43,6 +43,7 @@ variable "dataflow_params" {
         "enable_google_cloud_profiler", "enable_stackdriver_agent_metrics",
         "use_runner_v2", "enable_google_cloud_heap_sampling"
       ])
+      additional_pipeline_options = optional(set(string))
       autoscaling_algorithm        = optional(string)
       enable_streaming_engine      = optional(bool, true)
       kms_key_name                 = optional(string)
