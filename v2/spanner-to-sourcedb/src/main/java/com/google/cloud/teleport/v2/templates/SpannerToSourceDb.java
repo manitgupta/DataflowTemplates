@@ -648,7 +648,7 @@ public class SpannerToSourceDb {
     DeadLetterQueueManager dlqManager = buildDlqManager(options);
 
     int reshuffleBucketSize =
-        maxNumWorkers
+        10 * maxNumWorkers
             * (debugOptions.getNumberOfWorkerHarnessThreads() > 0
                 ? debugOptions.getNumberOfWorkerHarnessThreads()
                 : Constants.DEFAULT_WORKER_HARNESS_THREAD_COUNT);

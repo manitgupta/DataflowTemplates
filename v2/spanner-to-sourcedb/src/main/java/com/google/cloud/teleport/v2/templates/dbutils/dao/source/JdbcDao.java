@@ -44,6 +44,7 @@ public class JdbcDao implements IDao<String> {
       if (connObj == null) {
         throw new ConnectionException("Connection is null");
       }
+      // connObj.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
       statement = connObj.createStatement();
       statement.executeUpdate(sqlStatement);
 

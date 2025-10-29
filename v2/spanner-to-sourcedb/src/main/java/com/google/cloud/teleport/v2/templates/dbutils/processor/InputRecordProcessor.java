@@ -127,7 +127,11 @@ public class InputRecordProcessor {
           dao.write(dmlGeneratorResponse);
           break;
         default:
+          Instant mySqlWriteTimeBefore = Instant.now();
           dao.write(dmlGeneratorResponse.getDmlStatement());
+          Instant mySqlWriteTimeAfter = Instant.now();
+          Distribution mySQLWriteLatency = Metrics.distribution(shardId, "mysql_write_latency_" + shardId);
+          mySQLWriteLatency.update(ChronoUnit.MILLIS.between(mySqlWriteTimeBefore, mySqlWriteTimeAfter));
           break;
       }
 
