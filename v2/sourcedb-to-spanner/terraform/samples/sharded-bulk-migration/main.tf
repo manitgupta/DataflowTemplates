@@ -14,7 +14,7 @@ locals {
 
 resource "random_pet" "job_prefixes" {
   count  = length(local.source_configs)
-  prefix = "smt-utcore-gfactor"
+  prefix = "smt-utcore-gfactor7"
 }
 
 resource "google_storage_bucket_object" "source_config_upload" {
@@ -73,7 +73,7 @@ resource "google_dataflow_flex_template_job" "generated" {
     google_storage_bucket_object.session_file_object
   ]
   provider                = google-beta
-  container_spec_gcs_path = "gs://dataflow-templates-${var.common_params.region}/latest/flex/Sourcedb_to_Spanner_Flex"
+  container_spec_gcs_path = "gs://manit-testing-ck/templates/flex/Sourcedb_to_Spanner_Flex"
 
   parameters = {
     jdbcDriverJars                 = var.common_params.jdbc_driver_jars

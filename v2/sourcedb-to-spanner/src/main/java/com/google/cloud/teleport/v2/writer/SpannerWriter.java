@@ -47,6 +47,10 @@ public class SpannerWriter implements Serializable {
     return setBatchSize(
         SpannerIO.write()
             .withSpannerConfig(spannerConfig)
+            .withGroupingFactor(50)
+            .withBatchSizeBytes(1024 * 1024 * 10) // 5 MB batch size instead of default 1 MB
+            .withMaxNumMutations(20000) // 20,000 instead of the default 5000
+            .withMaxNumRows(5000) // 5000 instead of the default 1000
             .withFailureMode(FailureMode.REPORT_FAILURES));
   }
 
