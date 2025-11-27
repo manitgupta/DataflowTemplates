@@ -11,6 +11,7 @@ variable "common_params" {
     jdbc_driver_jars                 = optional(string)
     jdbc_driver_class_name           = optional(string)
     num_partitions                   = optional(number)
+    fetch_size                       = optional(number)
     max_connections                  = optional(number)
     instance_id                      = string
     database_id                      = string
@@ -25,6 +26,7 @@ variable "common_params" {
     additional_experiments = optional(list(string), [
       "disable_runner_v2", "use_network_tags=allow-dataflow", "use_network_tags_for_flex_templates=allow-dataflow"
     ])
+    additional_pipeline_options = optional(list(string))
     network               = optional(string)
     subnetwork            = optional(string)
     service_account_email = optional(string)

@@ -14,7 +14,7 @@ locals {
 
 resource "random_pet" "job_prefixes" {
   count  = length(local.source_configs)
-  prefix = "smt"
+  prefix = "smt-utcore-gfactor"
 }
 
 resource "google_storage_bucket_object" "source_config_upload" {
@@ -81,6 +81,7 @@ resource "google_dataflow_flex_template_job" "generated" {
     maxConnections                 = tostring(var.common_params.max_connections)
     sourceConfigURL                = "${local.working_directory_gcs}/${random_pet.job_prefixes[count.index].id}/shardConfig.json"
     numPartitions                  = tostring(var.common_params.num_partitions)
+    fetchSize                      = var.common_params.fetch_size
     instanceId                     = var.common_params.instance_id
     databaseId                     = var.common_params.database_id
     projectId                      = var.common_params.spanner_project_id
@@ -95,6 +96,7 @@ resource "google_dataflow_flex_template_job" "generated" {
 
   service_account_email  = var.common_params.service_account_email
   additional_experiments = var.common_params.additional_experiments
+  additional_pipeline_options = var.common_params.additional_pipeline_options
   launcher_machine_type  = var.common_params.launcher_machine_type
   machine_type           = var.common_params.machine_type
   max_workers            = var.common_params.max_workers
