@@ -73,7 +73,7 @@ resource "google_dataflow_flex_template_job" "generated" {
     google_storage_bucket_object.session_file_object
   ]
   provider                = google-beta
-  container_spec_gcs_path = "gs://dataflow-templates-${var.common_params.region}/latest/flex/Sourcedb_to_Spanner_Flex"
+  container_spec_gcs_path = ""
 
   parameters = {
     jdbcDriverJars                 = var.common_params.jdbc_driver_jars
@@ -92,6 +92,7 @@ resource "google_dataflow_flex_template_job" "generated" {
     transformationCustomParameters = var.common_params.transformation_custom_parameters
     defaultSdkHarnessLogLevel      = var.common_params.default_log_level
     fetchSize                      = var.common_params.fetch_size
+    gcsOutputDirectory             = var.common_params.gcs_output_directory
   }
 
   service_account_email  = var.common_params.service_account_email

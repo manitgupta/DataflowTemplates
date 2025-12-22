@@ -21,6 +21,7 @@ variable "common_params" {
     transformation_custom_parameters = optional(string)
     transformation_class_name        = optional(string)
     fetch_size                       = optional(number)
+    gcs_output_directory             = optional(string)
 
     # Dataflow runtime parameters
     additional_experiments = optional(list(string), [
