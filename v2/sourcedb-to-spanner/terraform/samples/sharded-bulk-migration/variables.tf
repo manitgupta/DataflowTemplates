@@ -27,7 +27,7 @@ variable "common_params" {
     additional_experiments = optional(list(string), [
       "disable_runner_v2", "use_network_tags=allow-dataflow", "use_network_tags_for_flex_templates=allow-dataflow"
     ])
-    additonal_pipeline_options = optional(list(string))
+    additional_pipeline_options = optional(list(string))
     network               = optional(string)
     subnetwork            = optional(string)
     service_account_email = optional(string)
