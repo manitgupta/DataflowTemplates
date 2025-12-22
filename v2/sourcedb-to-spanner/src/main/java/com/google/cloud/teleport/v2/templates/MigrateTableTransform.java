@@ -104,7 +104,6 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
                 .resolve(shardId, StandardResolveOptions.RESOLVE_DIRECTORY)
                 .toString();
       }
-      LOG.info("avroDirectory = {}", avroDirectory);
       writeToGCS(sourceRows, avroDirectory);
     }
 
