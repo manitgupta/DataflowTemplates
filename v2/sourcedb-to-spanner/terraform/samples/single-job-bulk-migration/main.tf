@@ -66,10 +66,13 @@ resource "google_dataflow_flex_template_job" "generated" {
     transformationClassName        = var.transformation_class_name
     transformationCustomParameters = var.transformation_custom_parameters
     defaultSdkHarnessLogLevel      = var.default_log_level
+    fetchSize                      = var.fetch_size
+    gcsOutputDirectory             = var.gcs_output_directory
   }
 
   service_account_email  = var.service_account_email
   additional_experiments = var.additional_experiments
+  additional_pipeline_options = var.additional_pipeline_options
   launcher_machine_type  = var.launcher_machine_type
   machine_type           = var.machine_type
   max_workers            = var.max_workers
