@@ -431,7 +431,7 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
   void setMaxCommitDelay(Long value);
 
   @TemplateParameter.GcsWriteFolder(
-      order = 33,
+      order = 34,
       optional = true,
       description = "GCS directory for AVRO files",
       helpText = "This directory is used to write the AVRO files of the records read from source.",
