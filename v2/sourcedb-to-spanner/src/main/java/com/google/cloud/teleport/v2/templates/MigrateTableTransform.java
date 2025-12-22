@@ -170,23 +170,22 @@ public class MigrateTableTransform extends PTransform<PBegin, PCollection<Void>>
     return spannerWriteResult.getOutput();
   }
 
-  public WriteFilesResult<AvroDestination> writeToGCS(PCollection<SourceRow> sourceRows, String gcsOutputDirectory) {
+  public WriteFilesResult<AvroDestination> writeToGCS(
+      PCollection<SourceRow> sourceRows, String gcsOutputDirectory) {
     return sourceRows.apply(
         "WriteAvroToGCS",
         FileIO.<AvroDestination, SourceRow>writeDynamic()
             .by(
-                (record) -> AvroDestination.of(record.tableName(),
-                    record.getPayload().getSchema().toString())
-            )
+                (record) ->
+                    AvroDestination.of(
+                        record.tableName(), record.getPayload().getSchema().toString()))
             .via(
                 Contextful.fn(record -> record.getPayload()),
-                Contextful.fn(destination -> AvroIO.sink(destination.jsonSchema))
-            )
+                Contextful.fn(destination -> AvroIO.sink(destination.jsonSchema)))
             .withDestinationCoder(AvroCoder.of(AvroDestination.class))
             .to(gcsOutputDirectory)
             .withNumShards(0)
-            .withNaming(
-                (SerializableFunction<AvroDestination, FileNaming>) AvroFileNaming::new));
+            .withNaming((SerializableFunction<AvroDestination, FileNaming>) AvroFileNaming::new));
   }
 
   class AvroFileNaming implements FileIO.Write.FileNaming {
