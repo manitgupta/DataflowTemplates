@@ -73,7 +73,7 @@ resource "google_dataflow_flex_template_job" "generated" {
     google_storage_bucket_object.session_file_object
   ]
   provider                = google-beta
-  container_spec_gcs_path = ""
+  container_spec_gcs_path = "gs://dataflow-templates-${var.common_params.region}/latest/flex/Sourcedb_to_Spanner_Flex"
 
   parameters = {
     jdbcDriverJars                 = var.common_params.jdbc_driver_jars
