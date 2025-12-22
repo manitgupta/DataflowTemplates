@@ -28,9 +28,9 @@ variable "common_params" {
       "disable_runner_v2", "use_network_tags=allow-dataflow", "use_network_tags_for_flex_templates=allow-dataflow"
     ])
     additional_pipeline_options = optional(list(string))
-    network               = optional(string)
-    subnetwork            = optional(string)
-    service_account_email = optional(string)
+    network                     = optional(string)
+    subnetwork                  = optional(string)
+    service_account_email       = optional(string)
     # Recommend using larger launcher VMs. Machine with >= 16 vCPUs should be safe.
     launcher_machine_type = optional(string, "n1-highmem-32")
     machine_type          = optional(string, "n1-highmem-4")
