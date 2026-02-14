@@ -732,7 +732,7 @@ public class DataStreamToSpanner {
             .get(DeadLetterQueueManager.RETRYABLE_ERRORS)
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
     if (isRegularMode) {
-      LOG.info("Regular Datastream flow");
+      LOG.info("Regular Datastream flow testing");
       PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
           pipeline.apply(
               new DataStreamIO(
