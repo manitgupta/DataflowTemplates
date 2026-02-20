@@ -4,6 +4,12 @@ variable "add_policies_to_service_account" {
   default     = true
 }
 
+variable "source_db_dialect" {
+  type        = string
+  description = "The source database dialect. (e.g. MYSQL, POSTGRESQL, SQLSERVER)"
+  default     = "MYSQL"
+}
+
 variable "job_name" {
   type        = string
   description = "Dataflow job name."

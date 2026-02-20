@@ -127,9 +127,19 @@ public final class JdbcIoWrapper implements IoWrapper {
         setConnectionProperty(dataSource, "connectTimeout", connectivityTimeout);
         setConnectionProperty(dataSource, "socketTimeout", connectivityTimeout);
         break;
+      case SQLSERVER:
+        connectivityTimeout =
+            String.valueOf(config.schemaDiscoveryConnectivityTimeoutMilliSeconds() / 1000);
+        setConnectionProperty(dataSource, "loginTimeout", connectivityTimeout);
+        setConnectionProperty(
+            dataSource,
+            "socketTimeout",
+            String.valueOf(config.schemaDiscoveryConnectivityTimeoutMilliSeconds()));
+        break;
       default:
         logger.error(
-            "No connectivity timeout overrides implemented for dialect {}. In case of misconfigured network connectivity, schema discovery could timeout without correct error reporting.");
+            "No connectivity timeout overrides implemented for dialect {}. In case of misconfigured network connectivity, schema discovery could timeout without correct error reporting.",
+            config.sourceDbDialect());
     }
   }
 

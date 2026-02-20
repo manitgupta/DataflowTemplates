@@ -63,8 +63,6 @@ public class DeadLetterQueue implements Serializable {
 
   private final String dlqDirectory;
 
-  private final Ddl ddl;
-
   private Map<String, String> srcTableToShardIdColumnMap;
 
   private final SQLDialect sqlDialect;
@@ -95,7 +93,7 @@ public class DeadLetterQueue implements Serializable {
       SQLDialect sqlDialect,
       ISchemaMapper iSchemaMapper) {
     this.dlqDirectory = dlqDirectory;
-    this.ddl = ddl;
+    // this.ddl = ddl; // Unused
     this.srcTableToShardIdColumnMap = srcTableToShardIdColumnMap;
     this.sqlDialect = sqlDialect;
     this.schemaMapper = iSchemaMapper;
@@ -323,6 +321,9 @@ public class DeadLetterQueue implements Serializable {
       case POSTGRESQL:
         json.put(
             DatastreamConstants.EVENT_SOURCE_TYPE_KEY, DatastreamConstants.POSTGRES_SOURCE_TYPE);
+        break;
+      case SQLSERVER:
+        json.put(DatastreamConstants.EVENT_SOURCE_TYPE_KEY, "sqlserver");
         break;
       default:
         json.put(DatastreamConstants.EVENT_SOURCE_TYPE_KEY, DatastreamConstants.MYSQL_SOURCE_TYPE);

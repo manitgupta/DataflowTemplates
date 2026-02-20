@@ -25,6 +25,7 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
   String ASTRA_DB_SOURCE_DIALECT = "ASTRA_DB";
   String MYSQL_SOURCE_DIALECT = "MYSQL";
   String PG_SOURCE_DIALECT = "POSTGRESQL";
+  String SQLSERVER_SOURCE_DIALECT = "SQLSERVER";
 
   @TemplateParameter.Enum(
       order = 1,
@@ -33,10 +34,11 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
         @TemplateParameter.TemplateEnumOption(ASTRA_DB_SOURCE_DIALECT),
         @TemplateParameter.TemplateEnumOption(CASSANDRA_SOURCE_DIALECT),
         @TemplateParameter.TemplateEnumOption(MYSQL_SOURCE_DIALECT),
-        @TemplateParameter.TemplateEnumOption(PG_SOURCE_DIALECT)
+        @TemplateParameter.TemplateEnumOption(PG_SOURCE_DIALECT),
+        @TemplateParameter.TemplateEnumOption(SQLSERVER_SOURCE_DIALECT)
       },
       description = "Dialect of the source database",
-      helpText = "Possible values are `CASSANDRA`, `MYSQL` and `POSTGRESQL`.")
+      helpText = "Possible values are `CASSANDRA`, `MYSQL`, `POSTGRESQL` and `SQLSERVER`.")
   @Default.String("MYSQL")
   String getSourceDbDialect();
 
@@ -69,7 +71,6 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
   @TemplateParameter.Text(
       order = 4,
       optional = true,
-      regexes = {"(^jdbc:mysql://.*|^jdbc:postgresql://.*|^gs://.*|^$)"},
       groupName = "Source",
       description = "Source database connection URL or shard config path.",
       helpText =

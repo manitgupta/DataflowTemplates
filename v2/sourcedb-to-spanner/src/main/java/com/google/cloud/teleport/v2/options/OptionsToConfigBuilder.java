@@ -17,6 +17,7 @@ package com.google.cloud.teleport.v2.options;
 
 import static com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.JdbcIOWrapperConfig.builderWithMySqlDefaults;
 import static com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.JdbcIOWrapperConfig.builderWithPostgreSQLDefaults;
+import static com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.JdbcIOWrapperConfig.builderWithSqlServerDefaults;
 
 import com.google.cloud.teleport.v2.source.reader.auth.dbauth.LocalCredentialsProvider;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.JdbcSchemaReference;
@@ -142,6 +143,25 @@ public final class OptionsToConfigBuilder {
           sourceDbURL = sourceDbURL + "&" + connectionProperties;
         }
         break;
+      case SQLSERVER:
+        if (sourceDbURL == null) {
+          sourceDbURL =
+              "jdbc:sqlserver://"
+                  + host
+                  + ":"
+                  + port
+                  + ";databaseName="
+                  + dbName
+                  + ";encrypt=true;trustServerCertificate=true"; // Defaulting to encrypted but
+          // trusting cert for now, or
+          // should we let user provide properties?
+          if (StringUtils.isNotBlank(connectionProperties)) {
+            sourceDbURL = sourceDbURL + ";" + connectionProperties;
+          }
+        }
+        break;
+      default:
+        break;
     }
 
     builder.setSourceDbURL(sourceDbURL);
@@ -253,6 +273,14 @@ public final class OptionsToConfigBuilder {
   }
 
   private static String extractDbFromURL(String sourceDbUrl) {
+    if (sourceDbUrl.startsWith("jdbc:sqlserver")) {
+      Pattern pattern = Pattern.compile("databaseName=([^;&]*)");
+      Matcher matcher = pattern.matcher(sourceDbUrl);
+      if (matcher.find()) {
+        return matcher.group(1);
+      }
+    }
+
     URI uri;
     try {
       // Strip off the prefix 'jdbc:' which the library cannot handle.
@@ -268,6 +296,9 @@ public final class OptionsToConfigBuilder {
     if (dialect == SQLDialect.POSTGRESQL) {
       return builderWithPostgreSQLDefaults();
     }
+    if (dialect == SQLDialect.SQLSERVER) {
+      return builderWithSqlServerDefaults();
+    }
     return builderWithMySqlDefaults();
   }
 
@@ -276,9 +307,14 @@ public final class OptionsToConfigBuilder {
       SQLDialect dialect, String dbName, String namespace) {
     JdbcSchemaReference.Builder builder = JdbcSchemaReference.builder();
     // Namespaces are not supported for MySQL
-    if (dialect == SQLDialect.POSTGRESQL) {
+    // Namespaces are not supported for MySQL
+    if (dialect == SQLDialect.POSTGRESQL || dialect == SQLDialect.SQLSERVER) {
       if (StringUtils.isBlank(namespace)) {
-        builder.setNamespace(DEFAULT_POSTGRESQL_NAMESPACE);
+        if (dialect == SQLDialect.POSTGRESQL) {
+          builder.setNamespace(DEFAULT_POSTGRESQL_NAMESPACE);
+        } else {
+          builder.setNamespace("dbo"); // Default for SQL Server
+        }
       } else {
         builder.setNamespace(namespace);
       }
