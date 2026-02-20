@@ -18,6 +18,7 @@ package com.google.cloud.teleport.v2.source.reader.io.schema.typemapping;
 import com.google.cloud.teleport.v2.source.reader.io.cassandra.mappings.CassandraMappingsProvider;
 import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.provider.MysqlMappingProvider;
 import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.provider.PostgreSQLMappingProvider;
+import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.provider.SqlServerMappingProvider;
 import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.provider.unified.Unsupported;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SourceColumnType;
 import com.google.common.collect.ImmutableMap;
@@ -43,7 +44,9 @@ public final class UnifiedTypeMapper {
           MapperType.POSTGRESQL,
           PostgreSQLMappingProvider.getMapping(),
           MapperType.CASSANDRA,
-          CassandraMappingsProvider.getMapping());
+          CassandraMappingsProvider.getMapping(),
+          MapperType.SQLSERVER,
+          SqlServerMappingProvider.getMapping());
 
   private final MapperType mapperType;
 

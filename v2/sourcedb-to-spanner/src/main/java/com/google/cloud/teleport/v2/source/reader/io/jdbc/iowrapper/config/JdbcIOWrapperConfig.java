@@ -23,6 +23,7 @@ import com.google.cloud.teleport.v2.source.reader.io.jdbc.JdbcSchemaReference;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.dialectadapter.DialectAdapter;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.defaults.MySqlConfigDefaults;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.defaults.PostgreSQLConfigDefaults;
+import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.defaults.SqlServerConfigDefaults;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.rowmapper.JdbcValueMappingsProvider;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.uniformsplitter.range.Range;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.uniformsplitter.transforms.ReadWithUniformPartitions;
@@ -252,6 +253,36 @@ public abstract class JdbcIOWrapperConfig {
   public abstract Long splitStageCountHint();
 
   private static final Integer DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS = 8 * 3600 * 1000;
+
+  public static Builder builderWithSqlServerDefaults() {
+    return new AutoValue_JdbcIOWrapperConfig.Builder()
+        .setSourceDbDialect(SQLDialect.SQLSERVER)
+        .setDialectAdapter(SqlServerConfigDefaults.DEFAULT_SQLSERVER_DIALECT_ADAPTER)
+        .setValueMappingsProvider(SqlServerConfigDefaults.DEFAULT_SQLSERVER_VALUE_MAPPING_PROVIDER)
+        .setSchemaDiscoveryBackOff(
+            SqlServerConfigDefaults.DEFAULT_SQLSERVER_SCHEMA_DISCOVERY_BACKOFF)
+        .setMaxConnections(SqlServerConfigDefaults.DEFAULT_SQLSERVER_MAX_CONNECTIONS)
+        .setSchemaMapperType(SqlServerConfigDefaults.DEFAULT_SQLSERVER_SCHEMA_MAPPER_TYPE)
+        .setSqlInitSeq(SqlServerConfigDefaults.DEFAULT_SQLSERVER_INIT_SEQ)
+        .setTables(ImmutableList.of())
+        .setTableVsPartitionColumns(ImmutableMap.of())
+        .setMaxPartitions(null)
+        .setWaitOn(null)
+        .setMaxFetchSize(null)
+        .setDbParallelizationForReads(null)
+        .setDbParallelizationForSplitProcess(DEFAULT_PARALLELIZATION_FOR_SLIT_PROCESS)
+        .setReadWithUniformPartitionsFeatureEnabled(true)
+        .setTestOnBorrow(DEFAULT_TEST_ON_BORROW)
+        .setTestOnCreate(DEFAULT_TEST_ON_CREATE)
+        .setTestOnReturn(DEFAULT_TEST_ON_RETURN)
+        .setTestWhileIdle(DEFAULT_TEST_WILE_IDLE)
+        .setValidationQuery(DEFAULT_VALIDATEION_QUERY)
+        .setRemoveAbandonedTimeout(DEFAULT_REMOVE_ABANDONED_TIMEOUT)
+        .setMinEvictableIdleTimeMillis(DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS)
+        .setSchemaDiscoveryConnectivityTimeoutMilliSeconds(
+            DEFAULT_SCHEMA_DISCOVERY_CONNECTIVITY_TIMEOUT_MILLISECONDS)
+        .setSplitStageCountHint(-1L);
+  }
 
   public abstract Builder toBuilder();
 

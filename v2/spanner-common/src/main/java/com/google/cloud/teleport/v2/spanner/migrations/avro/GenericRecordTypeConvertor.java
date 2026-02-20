@@ -171,25 +171,39 @@ public class GenericRecordTypeConvertor {
           continue;
         }
 
-        // If a Spanner column does not exist in the source data, there are several possible
+        // If a Spanner column does not exist in the source data, there are several
+        // possible
         // explanations:
-        // 1. The column might be an auto-value column in Spanner, such as generated column,
+        // 1. The column might be an auto-value column in Spanner, such as generated
+        // column,
         // default, auto-gen keys.
-        // 2. Column was supposed to be populated by custom transform, but user error missed this
+        // 2. Column was supposed to be populated by custom transform, but user error
+        // missed this
         // column during custom transform.
-        // 3. The column might have been accidentally left over in the Spanner column without the
+        // 3. The column might have been accidentally left over in the Spanner column
+        // without the
         // right handling.
-        // In all of these cases, we omit this column from the Spanner mutation and user errors will
-        // fail on Spanner. The writer's Dead Letter Queue (DLQ) is responsible for catching any
-        // misconfigurations  where a required column is missing.
-        if (!(schemaMapper.colExistsAtSource(namespace, spannerTableName, spannerColName)
-            && record.hasField(
-                schemaMapper.getSourceColumnName(namespace, spannerTableName, spannerColName)))) {
+        // In all of these cases, we omit this column from the Spanner mutation and user
+        // errors will
+        // fail on Spanner. The writer's Dead Letter Queue (DLQ) is responsible for
+        // catching any
+        // misconfigurations where a required column is missing.
+        boolean colExistsAtSource =
+            schemaMapper.colExistsAtSource(namespace, spannerTableName, spannerColName);
+
+        if (!colExistsAtSource) {
           continue;
         }
 
         String srcColName =
             schemaMapper.getSourceColumnName(namespace, spannerTableName, spannerColName);
+        String actualFieldName = getFieldNameCaseInsensitive(record, srcColName);
+
+        if (actualFieldName == null) {
+          LOG.warn("Field {} not found in record for table {}.", srcColName, srcTableName);
+          continue;
+        }
+
         Type spannerColumnType =
             schemaMapper.getSpannerColumnType(namespace, spannerTableName, spannerColName);
 
@@ -203,9 +217,9 @@ public class GenericRecordTypeConvertor {
 
         Value value =
             getSpannerValue(
-                record.get(srcColName),
-                record.getSchema().getField(srcColName).schema(),
-                srcColName,
+                record.get(actualFieldName),
+                record.getSchema().getField(actualFieldName).schema(),
+                actualFieldName,
                 spannerColumnType,
                 cassandraAnnotations);
         result.put(spannerColName, value);
@@ -765,5 +779,17 @@ public class GenericRecordTypeConvertor {
       return def;
     }
     return (T) element.get(name);
+  }
+
+  private String getFieldNameCaseInsensitive(GenericRecord record, String fieldName) {
+    if (record.hasField(fieldName)) {
+      return fieldName;
+    }
+    for (Schema.Field field : record.getSchema().getFields()) {
+      if (field.name().equalsIgnoreCase(fieldName)) {
+        return field.name();
+      }
+    }
+    return null;
   }
 }

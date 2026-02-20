@@ -82,39 +82,63 @@ public final class JdbcSourceRowMapper implements JdbcIO.RowMapper<SourceRow> {
   @Override
   public @UnknownKeyFor @Nullable @Initialized SourceRow mapRow(
       @UnknownKeyFor @NonNull @Initialized ResultSet resultSet) {
-    var builder =
-        SourceRow.builder(
-            sourceSchemaReference, sourceTableSchema, shardId, getCurrentTimeMicros());
-    this.sourceTableSchema
-        .sourceColumnNameToSourceColumnType()
-        .entrySet()
-        .forEach(
-            entry -> {
-              try {
-                Schema schema =
-                    this.sourceTableSchema.getAvroPayload().getField(entry.getKey()).schema();
-                // The Unified avro mapping produces a union of the mapped type with null type
-                // except for "Unsupported" case.
-                if (schema.isUnion()) {
-                  schema = schema.getTypes().get(1);
+    try {
+      var builder =
+          SourceRow.builder(
+              sourceSchemaReference, sourceTableSchema, shardId, getCurrentTimeMicros());
+      this.sourceTableSchema
+          .sourceColumnNameToSourceColumnType()
+          .entrySet()
+          .forEach(
+              entry -> {
+                try {
+                  Schema schema =
+                      this.sourceTableSchema.getAvroPayload().getField(entry.getKey()).schema();
+                  // The Unified avro mapping produces a union of the mapped type with null type
+                  // except for "Unsupported" case.
+                  if (schema.isUnion()) {
+                    schema = schema.getTypes().get(1);
+                  }
+                  String colName = entry.getKey();
+                  String typeName = entry.getValue().getName().toUpperCase();
+                  JdbcValueMapper<?> mapper = this.mappingsProvider.getMappings().get(typeName);
+                  if (mapper == null) {
+                    mapper = JdbcValueMapper.UNSUPPORTED;
+                    logger.warn(
+                        "Using UNSUPPORTED mapper for column: {}, type: {}", colName, typeName);
+                  }
+                  Object mappedValue = mapper.mapValue(resultSet, colName, schema);
+                  // Log only if value is null to avoid spamming, or use a sample rate if needed
+                  if (mappedValue == null) {
+                    logger.info(
+                        "Mapped value is null for column: {}, type: {}, schema: {}",
+                        colName,
+                        typeName,
+                        schema);
+                  }
+                  builder.setField(colName, mappedValue);
+                } catch (SQLException e) {
+                  mapperErrors.inc();
+                  logger.error(
+                      "Exception while mapping jdbc ResultSet to avro. Check for potential schema changes or unexpected inaccuracy in schema discovery logs. SourceSchemaReference: {},  SourceTableSchema: {}. Exception: {}",
+                      sourceSchemaReference,
+                      sourceTableSchema,
+                      e);
+                  throw new ValueMappingException(e);
                 }
-                builder.setField(
-                    entry.getKey(),
-                    this.mappingsProvider
-                        .getMappings()
-                        .getOrDefault(
-                            entry.getValue().getName().toUpperCase(), JdbcValueMapper.UNSUPPORTED)
-                        .mapValue(resultSet, entry.getKey(), schema));
-              } catch (SQLException e) {
-                mapperErrors.inc();
-                logger.error(
-                    "Exception while mapping jdbc ResultSet to avro. Check for potential schema changes or unexpected inaccuracy in schema discovery logs. SourceSchemaReference: {},  SourceTableSchema: {}. Exception: {}",
-                    sourceSchemaReference,
-                    sourceTableSchema,
-                    e);
-                throw new ValueMappingException(e);
-              }
-            });
-    return builder.build();
+              });
+      SourceRow row = builder.build();
+      // TODO: Remove this after debugging is over.
+      logger.info("Sample mapped row: {}", row);
+      return row;
+    } catch (Exception e) {
+      mapperErrors.inc();
+      logger.error(
+          "Unexpected exception in mapRow. SourceSchemaReference: {}, SourceTableSchema: {}",
+          sourceSchemaReference,
+          sourceTableSchema,
+          e);
+      throw new RuntimeException(e);
+    }
   }
 }

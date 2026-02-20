@@ -74,6 +74,9 @@ public abstract class SourceTableSchema implements Serializable {
     if (dialect == SQLDialect.POSTGRESQL) {
       return builder(MapperType.POSTGRESQL);
     }
+    if (dialect == SQLDialect.SQLSERVER) {
+      return builder(MapperType.SQLSERVER);
+    }
     return builder(MapperType.MYSQL);
   }
 

@@ -1,13 +1,3 @@
-# upload local session file to the working GCS bucket
-resource "google_storage_bucket_object" "session_file_object" {
-  count        = var.local_session_file_path != null ? 1 : 0
-  depends_on   = [google_project_service.enabled_apis]
-  name         = "${var.working_directory_prefix}/session.json"
-  source       = var.local_session_file_path
-  content_type = "application/json"
-  bucket       = var.working_directory_bucket
-}
-
 # Setup network firewalls rules to enable Dataflow access to source.
 resource "google_compute_firewall" "allow-dataflow-to-source" {
   depends_on  = [google_project_service.enabled_apis]
@@ -18,7 +8,7 @@ resource "google_compute_firewall" "allow-dataflow-to-source" {
 
   allow {
     protocol = "tcp"
-    ports    = ["3306"]
+    ports    = ["3306", "1433", "5432"]
   }
   source_tags = ["dataflow"]
   target_tags = ["databases"]
@@ -42,17 +32,17 @@ resource "google_project_iam_member" "live_migration_roles" {
 
 resource "google_dataflow_flex_template_job" "generated" {
   depends_on = [
-    google_project_service.enabled_apis,
-    google_storage_bucket_object.session_file_object
+    google_project_service.enabled_apis
   ]
   provider                = google-beta
-  container_spec_gcs_path = "gs://dataflow-templates-${var.region}/latest/flex/Sourcedb_to_Spanner_Flex"
+  container_spec_gcs_path = "gs://${var.working_directory_bucket}/${var.working_directory_prefix}/flex/Sourcedb_to_Spanner_Flex"
 
   parameters = {
     jdbcDriverJars                 = var.jdbc_driver_jars
     jdbcDriverClassName            = var.jdbc_driver_class_name
     maxConnections                 = tostring(var.max_connections)
     sourceConfigURL                = var.source_config_url
+    sourceDbDialect                = var.source_db_dialect
     username                       = var.username
     password                       = var.password
     numPartitions                  = tostring(var.num_partitions)
@@ -60,7 +50,6 @@ resource "google_dataflow_flex_template_job" "generated" {
     databaseId                     = var.database_id
     projectId                      = var.spanner_project_id
     spannerHost                    = var.spanner_host
-    sessionFilePath                = var.local_session_file_path != null ? "gs://${var.working_directory_bucket}/${var.working_directory_prefix}/session.json" : null
     outputDirectory                = "gs://${var.working_directory_bucket}/${var.working_directory_prefix}/output/"
     transformationJarPath          = var.transformation_jar_path
     transformationClassName        = var.transformation_class_name

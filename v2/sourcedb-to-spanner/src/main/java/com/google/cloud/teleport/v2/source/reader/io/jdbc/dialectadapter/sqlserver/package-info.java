@@ -13,23 +13,5 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-package com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config;
-
-/**
- * The dialect of the source database. One of:
- *
- * <ul>
- *   <lI>MYSQL
- *   <lI>POSTGRESQL
- *   <LI>CASSANDRA
- * </ul>
- *
- * TODO(b/390535694): move this to non-jdbc package.
- */
-public enum SQLDialect {
-  MYSQL,
-  POSTGRESQL,
-  SQLSERVER,
-  CASSANDRA,
-  ASTRA_DB
-}
+/** Quantiles for reading from SQLServer. */
+package com.google.cloud.teleport.v2.source.reader.io.jdbc.dialectadapter.sqlserver;

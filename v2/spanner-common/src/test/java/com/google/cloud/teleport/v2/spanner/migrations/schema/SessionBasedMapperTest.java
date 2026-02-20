@@ -379,7 +379,19 @@ public class SessionBasedMapperTest {
   }
 
   @Test
-  public void testCassandraAnnotations() {
+  public void testColExistsAtSourceSyntheticPK() {
+    // "synth_id" is a synthetic PK in "new_people", so it should NOT exist at
+    // source.
+    assertFalse(mapper.colExistsAtSource("", "new_people", "synth_id"));
+  }
+
+  @Test
+  public void testColExistsAtSourceCaseSensitivity() {
+    // "new_quantity" exists.
+    assertTrue(mapper.colExistsAtSource("", "new_cart", "new_quantity"));
+    // "NEW_QUANTITY" does NOT exist because the map is case-sensitive and the key
+    // is "new_quantity".
+    assertFalse(mapper.colExistsAtSource("", "new_cart", "NEW_QUANTITY"));
     assertEquals(
         mapper
             .getSpannerColumnCassandraAnnotations("", "new_cart", "new_user_id")

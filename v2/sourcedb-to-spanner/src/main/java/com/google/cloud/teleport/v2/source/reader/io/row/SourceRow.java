@@ -196,7 +196,10 @@ public abstract class SourceRow implements Serializable {
       this.setTableSchemaUUID(sourceTableSchema.tableSchemaUUID());
       this.setTableName(sourceTableSchema.tableName());
       this.setShardId(shardId);
-      this.setPrimaryKeyColumns(sourceTableSchema.primaryKeyColumns());
+      this.setPrimaryKeyColumns(
+          sourceTableSchema.primaryKeyColumns() != null
+              ? sourceTableSchema.primaryKeyColumns()
+              : ImmutableList.of());
       this.recordBuilder = new GenericRecordBuilder(sourceTableSchema.avroSchema());
       this.recordBuilder.set(SourceTableSchema.READ_TIME_STAMP_FIELD_NAME, readTimeMicros);
       this.payloadBuilder =

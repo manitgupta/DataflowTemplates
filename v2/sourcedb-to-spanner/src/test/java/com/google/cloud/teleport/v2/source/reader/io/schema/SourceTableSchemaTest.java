@@ -21,6 +21,7 @@ import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.SQLDi
 import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.UnifiedTypeMapper.MapperType;
 import com.google.common.collect.ImmutableList;
 import junit.framework.TestCase;
+import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.junit.Assert;
 import org.junit.Test;
@@ -93,5 +94,33 @@ public class SourceTableSchemaTest extends TestCase {
   public void testPostgreSqlMapperType() {
     assertThat(SourceTableSchema.builder(SQLDialect.POSTGRESQL).mapperType)
         .isEqualTo(MapperType.POSTGRESQL);
+  }
+
+  @Test
+  public void testSqlServerMapperType() {
+    assertThat(SourceTableSchema.builder(SQLDialect.SQLSERVER).mapperType)
+        .isEqualTo(MapperType.SQLSERVER);
+  }
+
+  @Test
+  public void testSqlServerIntMapping() {
+    var sourceTableSchema =
+        SourceTableSchema.builder(SQLDialect.SQLSERVER)
+            .setTableName("testTable")
+            .addSourceColumnNameToSourceColumnType(
+                "OrderID",
+                new com.google.cloud.teleport.v2.spanner.migrations.schema.SourceColumnType(
+                    "INT", new Long[] {}, new Long[] {}))
+            .build();
+
+    // Verify that OrderID is NOT mapped to unsupported (which is a union with null
+    // and a logical
+    // type "unsupported")
+    // Instead it should be mapped to an int (standard Avro INT)
+    Schema orderIdSchema = sourceTableSchema.getAvroPayload().getField("OrderID").schema();
+    // It should be a union [null, int]
+    assertThat(orderIdSchema.getType()).isEqualTo(Schema.Type.UNION);
+    assertThat(orderIdSchema.getTypes().get(1).getType()).isEqualTo(Schema.Type.INT);
+    assertThat(orderIdSchema.getTypes().get(1).getLogicalType()).isNull();
   }
 }
