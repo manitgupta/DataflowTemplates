@@ -200,7 +200,7 @@ public final class SpannerResourceManager implements ResourceManager {
               .get(() -> instanceAdminClient.createInstance(instanceInfo).get());
 
       hasInstance = true;
-      LOG.info("Successfully created instance {}: {}.", instanceId, instance.getState());
+      LOG.info("Successfully created instance for test{}: {}.", instanceId, instance.getState());
     } catch (Exception e) {
       cleanupAll();
       throw new SpannerResourceManagerException("Failed to create instance.", e);
