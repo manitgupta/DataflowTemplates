@@ -154,6 +154,11 @@ public class FormatDatastreamRecordToJson
       outputObject.put("_metadata_schema", getMetadataSchema(record));
       outputObject.put("_metadata_lsn", getPostgresLsn(record));
       outputObject.put("_metadata_tx_id", getPostgresTxId(record));
+    } else if (sourceType.equals("spanner") || (sourceType.equals("cdc") && getSourceMetadata(record, "commit_timestamp") != null)) {
+      // Spanner Specific Metadata
+      outputObject.put("_metadata_commit_timestamp", getSpannerCommitTimestampMicros(record));
+      outputObject.put("_metadata_record_sequence", getSourceMetadata(record, "record_sequence"));
+      outputObject.put("_metadata_mod_number", getSourceMetadata(record, "mod_number"));
     } else if (sourceType.equals("backfill") || sourceType.equals("cdc")) {
       // MongoDB Specific Metadata, MongoDB has different structure for sourceType.
       outputObject.put("_metadata_timestamp_seconds", getSecondsFromMongoSortKeys(record));
@@ -248,6 +253,20 @@ public class FormatDatastreamRecordToJson
     }
 
     return null;
+  }
+
+  private long getSpannerCommitTimestampMicros(GenericRecord record) {
+    String timestampStr = getSourceMetadata(record, "commit_timestamp");
+    if (timestampStr == null) {
+      return 0;
+    }
+    try {
+      Instant instant = Instant.parse(timestampStr);
+      return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+    } catch (Exception e) {
+      LOG.error("Issue parsing Spanner commit timestamp " + timestampStr, e);
+      return 0;
+    }
   }
 
   private String getMetadataSchema(GenericRecord record) {
