@@ -52,6 +52,9 @@ public class DatastreamConstants {
   /* The value for Postgres databases in the source type key */
   public static final String POSTGRES_SOURCE_TYPE = "postgresql";
 
+  /* The value for Spanner databases in the source type key */
+  public static final String SPANNER_SOURCE_TYPE = "spanner";
+
   /* The key for the schema name in the event json */
   public static final String EVENT_SCHEMA_KEY = "_metadata_schema";
 
@@ -145,6 +148,21 @@ public class DatastreamConstants {
   /* Mapping from Event keys to shadow table information for Postgres database with postgres dialect*/
   public static final Map<String, Pair<String, String>> POSTGRES_SORT_ORDER_PG_DIALECT;
 
+  /* List of Event keys, Shadow table information related to sort order in Spanner database. */
+  public static final String SPANNER_TIMESTAMP_KEY = "source_timestamp";
+
+  public static final Pair<String, String> SPANNER_TIMESTAMP_SHADOW_INFO =
+      Pair.of("timestamp", "INT64");
+
+  public static final Pair<String, String> SPANNER_TIMESTAMP_SHADOW_INFO_PG_DIALECT =
+      Pair.of("timestamp", "bigint");
+
+  /* Mapping from Event keys to shadow table information for Spanner database with gsql dialect*/
+  public static final Map<String, Pair<String, String>> SPANNER_SORT_ORDER;
+
+  /* Mapping from Event keys to shadow table information for Spanner database with postgres dialect*/
+  public static final Map<String, Pair<String, String>> SPANNER_SORT_ORDER_PG_DIALECT;
+
   public static final Map<Dialect, Map<String, Map<String, Pair<String, String>>>>
       DIALECT_TO_SORT_ORDER;
 
@@ -184,6 +202,14 @@ public class DatastreamConstants {
             POSTGRES_TIMESTAMP_KEY, POSTGRES_TIMESTAMP_SHADOW_INFO_PG_DIALECT,
             POSTGRES_LSN_KEY, POSTGRES_LSN_SHADOW_INFO_PG_DIALECT);
 
+    SPANNER_SORT_ORDER =
+        ImmutableMap.of(
+            SPANNER_TIMESTAMP_KEY, SPANNER_TIMESTAMP_SHADOW_INFO);
+
+    SPANNER_SORT_ORDER_PG_DIALECT =
+        ImmutableMap.of(
+            SPANNER_TIMESTAMP_KEY, SPANNER_TIMESTAMP_SHADOW_INFO_PG_DIALECT);
+
     DIALECT_TO_SORT_ORDER =
         ImmutableMap.of(
             Dialect.GOOGLE_STANDARD_SQL,
@@ -193,7 +219,9 @@ public class DatastreamConstants {
                 MYSQL_SOURCE_TYPE,
                 MYSQL_SORT_ORDER,
                 POSTGRES_SOURCE_TYPE,
-                POSTGRES_SORT_ORDER),
+                POSTGRES_SORT_ORDER,
+                SPANNER_SOURCE_TYPE,
+                SPANNER_SORT_ORDER),
             Dialect.POSTGRESQL,
             ImmutableMap.of(
                 ORACLE_SOURCE_TYPE,
@@ -201,9 +229,11 @@ public class DatastreamConstants {
                 MYSQL_SOURCE_TYPE,
                 MYSQL_SORT_ORDER_PG_DIALECT,
                 POSTGRES_SOURCE_TYPE,
-                POSTGRES_SORT_ORDER_PG_DIALECT));
+                POSTGRES_SORT_ORDER_PG_DIALECT,
+                SPANNER_SOURCE_TYPE,
+                SPANNER_SORT_ORDER_PG_DIALECT));
 
     SUPPORTED_DATASTREAM_SOURCES =
-        ImmutableList.of(ORACLE_SOURCE_TYPE, MYSQL_SOURCE_TYPE, POSTGRES_SOURCE_TYPE);
+        ImmutableList.of(ORACLE_SOURCE_TYPE, MYSQL_SOURCE_TYPE, POSTGRES_SOURCE_TYPE, SPANNER_SOURCE_TYPE);
   }
 }
