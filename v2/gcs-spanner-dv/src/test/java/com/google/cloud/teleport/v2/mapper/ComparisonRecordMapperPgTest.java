@@ -56,8 +56,6 @@ public class ComparisonRecordMapperPgTest {
   public void setUp() throws InvalidTransformationException {
     mapper = new ComparisonRecordMapper(mockSchemaMapper, mockTransformer, mockDdl);
 
-    when(mockSchemaMapper.getDialect()).thenReturn(Dialect.POSTGRESQL);
-
     // Mock ISchemaMapper
     when(mockSchemaMapper.getSpannerTableName(anyString(), anyString())).thenReturn("Users");
     when(mockSchemaMapper.getSpannerColumns(anyString(), anyString()))
@@ -71,28 +69,12 @@ public class ComparisonRecordMapperPgTest {
             anyString(), anyString(), org.mockito.ArgumentMatchers.eq("name")))
         .thenReturn("name");
 
-    // Crucial part: mock Spanner column types for PG Dialect
-    when(mockSchemaMapper.getSpannerColumnType(
-            anyString(), anyString(), org.mockito.ArgumentMatchers.eq("id")))
-        .thenReturn(Type.pgInt8());
-    when(mockSchemaMapper.getSpannerColumnType(
-            anyString(), anyString(), org.mockito.ArgumentMatchers.eq("name")))
-        .thenReturn(Type.pgVarchar());
-
     // Mock Ddl
     Table mockTable = mock(Table.class);
     when(mockDdl.table("Users")).thenReturn(mockTable);
     IndexColumn mockIndexColumn = mock(IndexColumn.class);
     when(mockIndexColumn.name()).thenReturn("id");
     when(mockTable.primaryKeys()).thenReturn(ImmutableList.of(mockIndexColumn));
-
-    Column mockCol1 = mock(Column.class);
-    when(mockCol1.name()).thenReturn("id");
-    when(mockCol1.type()).thenReturn(Type.pgInt8());
-    Column mockCol2 = mock(Column.class);
-    when(mockCol2.name()).thenReturn("name");
-    when(mockCol2.type()).thenReturn(Type.pgVarchar());
-    when(mockTable.columns()).thenReturn(ImmutableList.of(mockCol1, mockCol2));
 
     // Mock Transformer
     MigrationTransformationResponse mockResponse = mock(MigrationTransformationResponse.class);
@@ -102,6 +84,25 @@ public class ComparisonRecordMapperPgTest {
 
   @Test
   public void testMapFromAvroRecord_PgDialect() throws Exception {
+    when(mockSchemaMapper.getDialect()).thenReturn(Dialect.POSTGRESQL);
+
+    // Crucial part: mock Spanner column types for PG Dialect
+    when(mockSchemaMapper.getSpannerColumnType(
+            anyString(), anyString(), org.mockito.ArgumentMatchers.eq("id")))
+        .thenReturn(Type.pgInt8());
+    when(mockSchemaMapper.getSpannerColumnType(
+            anyString(), anyString(), org.mockito.ArgumentMatchers.eq("name")))
+        .thenReturn(Type.pgVarchar());
+
+    Table mockTable = mockDdl.table("Users");
+    Column mockCol1 = mock(Column.class);
+    when(mockCol1.name()).thenReturn("id");
+    when(mockCol1.type()).thenReturn(Type.pgInt8());
+    Column mockCol2 = mock(Column.class);
+    when(mockCol2.name()).thenReturn("name");
+    when(mockCol2.type()).thenReturn(Type.pgVarchar());
+    when(mockTable.columns()).thenReturn(ImmutableList.of(mockCol1, mockCol2));
+
     Schema payloadSchema = Schema.createRecord("Payload", null, "ns", false);
     payloadSchema.setFields(
         Arrays.asList(
@@ -131,5 +132,57 @@ public class ComparisonRecordMapperPgTest {
     assertEquals(1, record.getPrimaryKeyColumns().size());
     assertEquals("id", record.getPrimaryKeyColumns().get(0).getColName());
     assertEquals("123", record.getPrimaryKeyColumns().get(0).getColValue());
+  }
+
+  @Test
+  public void testMapFromAvroRecord_GoogleSqlDialect() throws Exception {
+    when(mockSchemaMapper.getDialect()).thenReturn(Dialect.GOOGLE_STANDARD_SQL);
+
+    // Crucial part: mock Spanner column types for GSQL Dialect
+    when(mockSchemaMapper.getSpannerColumnType(
+            anyString(), anyString(), org.mockito.ArgumentMatchers.eq("id")))
+        .thenReturn(Type.int64());
+    when(mockSchemaMapper.getSpannerColumnType(
+            anyString(), anyString(), org.mockito.ArgumentMatchers.eq("name")))
+        .thenReturn(Type.string());
+
+    Table mockTable = mockDdl.table("Users");
+    Column mockCol1 = mock(Column.class);
+    when(mockCol1.name()).thenReturn("id");
+    when(mockCol1.type()).thenReturn(Type.int64());
+    Column mockCol2 = mock(Column.class);
+    when(mockCol2.name()).thenReturn("name");
+    when(mockCol2.type()).thenReturn(Type.string());
+    when(mockTable.columns()).thenReturn(ImmutableList.of(mockCol1, mockCol2));
+
+    Schema payloadSchema = Schema.createRecord("Payload", null, "ns", false);
+    payloadSchema.setFields(
+        Arrays.asList(
+            new Schema.Field("id", Schema.create(Schema.Type.LONG), null, null),
+            new Schema.Field("name", Schema.create(Schema.Type.STRING), null, null)));
+
+    Schema avroSchema = Schema.createRecord("SourceRow", null, "ns", false);
+    avroSchema.setFields(
+        Arrays.asList(
+            new Schema.Field("tableName", Schema.create(Schema.Type.STRING), null, null),
+            new Schema.Field("shardId", Schema.create(Schema.Type.STRING), null, null),
+            new Schema.Field("payload", payloadSchema, null, null)));
+
+    GenericRecord payload = new GenericData.Record(payloadSchema);
+    payload.put("id", 456L);
+    payload.put("name", "Alice");
+
+    GenericRecord avroRecord = new GenericData.Record(avroSchema);
+    avroRecord.put("tableName", "Users");
+    avroRecord.put("shardId", "shard1");
+    avroRecord.put("payload", payload);
+
+    ComparisonRecord record = mapper.mapFrom(avroRecord);
+
+    assertNotNull(record);
+    assertEquals("Users", record.getTableName());
+    assertEquals(1, record.getPrimaryKeyColumns().size());
+    assertEquals("id", record.getPrimaryKeyColumns().get(0).getColName());
+    assertEquals("456", record.getPrimaryKeyColumns().get(0).getColValue());
   }
 }
