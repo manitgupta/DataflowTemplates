@@ -66,6 +66,8 @@ public class ChangeEventContextFactory {
       return new OracleChangeEventContext(changeEvent, ddl, shadowTableDdl, shadowTablePrefix);
     } else if (DatastreamConstants.POSTGRES_SOURCE_TYPE.equals(sourceType)) {
       return new PostgresChangeEventContext(changeEvent, ddl, shadowTableDdl, shadowTablePrefix);
+    } else if (DatastreamConstants.SPANNER_SOURCE_TYPE.equals(sourceType)) {
+      return new SpannerChangeEventContext(changeEvent, ddl, shadowTableDdl, shadowTablePrefix);
     }
 
     throw new InvalidChangeEventException("Unsupported source database: " + sourceType);

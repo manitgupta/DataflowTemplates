@@ -141,6 +141,10 @@ public class ChangeEventConvertor {
       throws ChangeEventConvertorException, InvalidChangeEventException {
     String tableName = changeEvent.get(DatastreamConstants.EVENT_TABLE_NAME_KEY).asText();
     List<String> changeEventKeys = ChangeEventUtils.getEventColumnKeys(changeEvent);
+    List<String> filteredKeys =
+        changeEventKeys.stream()
+            .filter(k -> !k.equals(DatastreamConstants.SPANNER_SORT_KEY))
+            .collect(Collectors.toList());
     try {
       Table table = ddl.table(tableName);
 
@@ -150,7 +154,7 @@ public class ChangeEventConvertor {
               .map(colName -> colName.toLowerCase())
               .collect(Collectors.toSet());
       return ChangeEventSpannerConvertor.mutationFromEvent(
-          table, changeEvent, changeEventKeys, keyColumns);
+          table, changeEvent, filteredKeys, keyColumns);
     } catch (Exception e) {
       throw new ChangeEventConvertorException(e);
     }
