@@ -99,6 +99,7 @@ public class ReportResultsTransform extends PTransform<PCollectionTuple, PDone> 
                 r ->
                     new TableRow()
                         .set(MismatchedRecord.RUN_ID_COLUMN_NAME, r.getRunId())
+                        .set(MismatchedRecord.SCHEMA_NAME, r.getSchemaName())
                         .set(MismatchedRecord.TABLE_NAME_COLUMN_NAME, r.getTableName())
                         .set(MismatchedRecord.MISMATCH_TYPE_COLUMN_NAME, r.getMismatchType())
                         .set(MismatchedRecord.RECORD_KEY_COLUMN_NAME, r.getRecordKey())
@@ -121,6 +122,7 @@ public class ReportResultsTransform extends PTransform<PCollectionTuple, PDone> 
                 stats ->
                     new TableRow()
                         .set(TableValidationStats.RUN_ID_COLUMN_NAME, stats.getRunId())
+                        .set(TableValidationStats.SCHEMA_NAME, stats.getSchemaName())
                         .set(TableValidationStats.TABLE_NAME_COLUMN_NAME, stats.getTableName())
                         .set(TableValidationStats.STATUS_COLUMN_NAME, stats.getStatus())
                         .set(
