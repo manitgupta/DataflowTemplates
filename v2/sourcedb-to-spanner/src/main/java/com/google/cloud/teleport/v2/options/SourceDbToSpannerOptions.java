@@ -27,6 +27,7 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
   String PG_SOURCE_DIALECT = "POSTGRESQL";
   String ORACLE_SOURCE_DIALECT = "ORACLE";
   String SQLSERVER_SOURCE_DIALECT = "SQLSERVER";
+  String GCS_SOURCE_DIALECT = "GCS";
 
   @TemplateParameter.Enum(
       order = 1,
@@ -37,11 +38,15 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
         @TemplateParameter.TemplateEnumOption(MYSQL_SOURCE_DIALECT),
         @TemplateParameter.TemplateEnumOption(PG_SOURCE_DIALECT),
         @TemplateParameter.TemplateEnumOption(ORACLE_SOURCE_DIALECT),
-        @TemplateParameter.TemplateEnumOption(SQLSERVER_SOURCE_DIALECT)
+        @TemplateParameter.TemplateEnumOption(SQLSERVER_SOURCE_DIALECT),
+        @TemplateParameter.TemplateEnumOption(GCS_SOURCE_DIALECT)
       },
       description = "Dialect of the source database",
       helpText =
-          "Possible values are `CASSANDRA`, `MYSQL`, `POSTGRESQL`, `ORACLE` and `SQLSERVER`.")
+          "Possible values are `CASSANDRA`, `ASTRA_DB`, `MYSQL`, `POSTGRESQL`, `ORACLE`, `SQLSERVER`"
+              + " and `GCS`. `GCS` reads an Avro file export described by a `manifest.json` (for"
+              + " example produced by the ArangoDB Spark exporter); the manifest must be on Cloud"
+              + " Storage (gs://) or a local path.")
   @Default.String("MYSQL")
   String getSourceDbDialect();
 
@@ -80,6 +85,7 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
               + " For Astra, it will point to an Astra connection config file ([sample](src/test/resources/SourceConfig/astra-connection-config.json))."
               + " For JDBC, it will point to a JDBC sharding config file ([sample](src/test/resources/SourceConfig/jdbc-shard-config.json))."
               + " For Cassandra, it will point to a Cassandra driver config file ([sample](src/test/resources/SourceConfig/cassandra-driver-config.conf))."
+              + " For GCS, it will point to the `manifest.json` of the export, or to the export directory ending in `/` ([sample](src/test/resources/SourceConfig/gcs-manifest.json))."
               + " This parameter is required.",
       example = "gs://your-bucket/source-config.json")
   @Default.String("")
@@ -367,4 +373,32 @@ public interface SourceDbToSpannerOptions extends CommonTemplateOptions {
   String getGcsOutputDirectory();
 
   void setGcsOutputDirectory(String value);
+
+  @TemplateParameter.Text(
+      order = 28,
+      optional = true,
+      groupName = "Target",
+      description = "Spanner Omni endpoint",
+      helpText =
+          "Endpoint of a self-managed Spanner Omni deployment, for example `http://10.0.0.5:15000`."
+              + " When set, the pipeline writes to Spanner Omni instead of Cloud Spanner;"
+              + " `projectId` and `instanceId` are ignored and `default` is used for both.",
+      example = "http://localhost:15000")
+  @Default.String("")
+  String getSpannerOmniEndpoint();
+
+  void setSpannerOmniEndpoint(String value);
+
+  @TemplateParameter.Boolean(
+      order = 29,
+      optional = true,
+      groupName = "Target",
+      description = "Use plaintext channel for Spanner Omni",
+      helpText =
+          "Use an unencrypted gRPC channel to Spanner Omni. Only used when `spannerOmniEndpoint` is"
+              + " set. Defaults to: true.")
+  @Default.Boolean(true)
+  Boolean getSpannerOmniPlainText();
+
+  void setSpannerOmniPlainText(Boolean value);
 }

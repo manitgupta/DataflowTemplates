@@ -33,4 +33,16 @@ public interface DbConfigContainer {
    * @return ioWrapper.
    */
   IoWrapper getIOWrapper(List<String> sourceTables, Wait.OnSignal<?> waitOnSignal);
+
+  /**
+   * Called once, before the pipeline runs, with every source table the migration will read. See
+   * {@link com.google.cloud.teleport.v2.reader.IoWrapperFactory#validateSelectedSourceTables}. The
+   * default does nothing.
+   *
+   * @param selectedSourceTables source tables that will be migrated (all levels).
+   * @param tablesConfigured whether the user restricted the migration with the {@code tables}
+   *     option.
+   */
+  default void validateSelectedSourceTables(
+      List<String> selectedSourceTables, boolean tablesConfigured) {}
 }

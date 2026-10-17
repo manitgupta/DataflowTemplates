@@ -146,6 +146,8 @@ public class PipelineController {
                   + " (or session file / overrides) refer to the same schema.",
               allSourceTables));
     }
+    configContainer.validateSelectedSourceTables(
+        allSourceTables, options.getTables() != null && !options.getTables().isBlank());
 
     // Add transform to increment table counter
     Map<Integer, OnSignal<?>> tableCompletionMap =

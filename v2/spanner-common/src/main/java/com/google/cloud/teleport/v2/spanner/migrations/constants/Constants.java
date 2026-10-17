@@ -33,6 +33,9 @@ public class Constants {
   /* The value for SQL Server databases in the source type key */
   public static final String SQLSERVER_SOURCE_TYPE = "sqlserver";
 
+  /* The source type value for file exports (manifest + Avro) on GCS or any Beam FileSystem */
+  public static final String GCS_SOURCE_TYPE = "gcs";
+
   /* The value for Spanner databases in the source type key */
   public static final String SPANNER_SOURCE_TYPE = "spanner";
 

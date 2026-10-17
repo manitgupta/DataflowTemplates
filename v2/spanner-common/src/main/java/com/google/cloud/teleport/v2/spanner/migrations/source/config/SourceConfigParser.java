@@ -35,7 +35,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Parses the source configuration from JSON/HOCON and resolves secrets from Secret Manager.
  *
- * <p>Supports the following source types: MySQL, PostgreSQL, Cassandra, and Astra DB.
+ * <p>Supports the following source types: MySQL, PostgreSQL, Cassandra, Astra DB, and GCS file
+ * exports.
  */
 public class SourceConfigParser {
   private static final Logger LOG = LoggerFactory.getLogger(SourceConfigParser.class);
@@ -61,7 +62,8 @@ public class SourceConfigParser {
    * Parses the configuration file from GCS into the appropriate {@link SourceConnectionConfig}
    * implementing class.
    *
-   * @param sourceTypeStr The source database type ("mysql", "postgresql", "cassandra", "astra_db").
+   * @param sourceTypeStr The source database type ("mysql", "postgresql", "cassandra", "astra_db",
+   *     "gcs").
    * @param sourceConfigFilePath The URI to the HOCON or JSON config file.
    * @return A populated implementation of {@link SourceConnectionConfig}.
    */
@@ -74,8 +76,10 @@ public class SourceConfigParser {
    * Parses the configuration file from GCS into the appropriate {@link SourceConnectionConfig}
    * implementing class.
    *
-   * @param sourceTypeStr The source database type ("mysql", "postgresql", "cassandra", "astra_db").
-   * @param sourceConfigFilePath The URI to the HOCON or JSON config file.
+   * @param sourceTypeStr The source database type ("mysql", "postgresql", "cassandra", "astra_db",
+   *     "gcs").
+   * @param sourceConfigFilePath The URI to the HOCON or JSON config file. For "gcs" it is the URI
+   *     of the export manifest (or of the export directory, ending in "/").
    * @param resolveSecrets Whether to resolve secrets from Secret Manager.
    * @return A populated implementation of {@link SourceConnectionConfig}.
    */
@@ -92,6 +96,8 @@ public class SourceConfigParser {
         String astraFileContent = FileLoader.readConfigFilePath(sourceConfigFilePath);
         Map<String, Object> astraConfigMap = parseConfigToConfigMap(astraFileContent);
         return mapper.convertValue(astraConfigMap, AstraConnectionConfig.class);
+      case GCS:
+        return GcsSourceConfig.fromUri(sourceConfigFilePath);
       case ORACLE:
       case MYSQL:
       case PG:

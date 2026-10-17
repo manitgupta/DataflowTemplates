@@ -20,7 +20,7 @@ on [Metadata Annotations](https://github.com/GoogleCloudPlatform/DataflowTemplat
 
 ### Required parameters
 
-* **sourceConfigURL**: The URL of the source connection config file. The file format is dependent on the source type. For Astra, it will point to an Astra connection config file ([sample](src/test/resources/SourceConfig/astra-connection-config.json)). For JDBC, it will point to a JDBC sharding config file ([sample](src/test/resources/SourceConfig/jdbc-shard-config.json)). For Cassandra, it will point to a Cassandra driver config file ([sample](src/test/resources/SourceConfig/cassandra-driver-config.conf)). This parameter is required. For example, `gs://your-bucket/source-config.json`. Defaults to empty.
+* **sourceConfigURL**: The URL of the source connection config file. The file format is dependent on the source type. For Astra, it will point to an Astra connection config file ([sample](src/test/resources/SourceConfig/astra-connection-config.json)). For JDBC, it will point to a JDBC sharding config file ([sample](src/test/resources/SourceConfig/jdbc-shard-config.json)). For Cassandra, it will point to a Cassandra driver config file ([sample](src/test/resources/SourceConfig/cassandra-driver-config.conf)). For GCS, it will point to the `manifest.json` of the export, or to the export directory ending in `/` ([sample](src/test/resources/SourceConfig/gcs-manifest.json)). This parameter is required. For example, `gs://your-bucket/source-config.json`. Defaults to empty.
 * **instanceId**: The destination Cloud Spanner instance.
 * **databaseId**: The destination Cloud Spanner database.
 * **projectId**: This is the name of the Cloud Spanner project.
@@ -28,7 +28,7 @@ on [Metadata Annotations](https://github.com/GoogleCloudPlatform/DataflowTemplat
 
 ### Optional parameters
 
-* **sourceDbDialect**: Possible values are `CASSANDRA`, `MYSQL`, `POSTGRESQL`, `ORACLE` and `SQLSERVER`. Defaults to: MYSQL.
+* **sourceDbDialect**: Possible values are `CASSANDRA`, `ASTRA_DB`, `MYSQL`, `POSTGRESQL`, `ORACLE`, `SQLSERVER` and `GCS`. `GCS` reads an Avro file export described by a `manifest.json` (for example produced by the ArangoDB Spark exporter); the manifest must be on Cloud Storage (gs://) or a local path. Defaults to: MYSQL.
 * **jdbcDriverJars**: The comma-separated list of driver JAR files. For example, `gs://your-bucket/driver_jar1.jar,gs://your-bucket/driver_jar2.jar`. Defaults to empty.
 * **jdbcDriverClassName**: The JDBC driver class name. For example, `com.mysql.jdbc.Driver`. Defaults to: com.mysql.jdbc.Driver.
 * **tables**: Tables to migrate from source. Defaults to empty.
@@ -50,6 +50,8 @@ on [Metadata Annotations](https://github.com/GoogleCloudPlatform/DataflowTemplat
 * **failureInjectionParameter**: Failure injection parameter. Only used for testing. Defaults to empty.
 * **maxCommitDelay**: Maximum commit delay time to optimize write throughput in Spanner. Reference https://cloud.google.com/spanner/docs/throughput-optimized-writes.Set -1 to let spanner choose the default. Set to a positive value to override for best suited tradeoff of throughput vs latency.Defaults to -1.
 * **gcsOutputDirectory**: This directory is used to write the AVRO files of the records read from source. For example, `gs://your-bucket/your-path`. Defaults to empty.
+* **spannerOmniEndpoint**: Endpoint of a self-managed Spanner Omni deployment, for example `http://10.0.0.5:15000`. When set, the pipeline writes to Spanner Omni instead of Cloud Spanner; `projectId` and `instanceId` are ignored and `default` is used for both. For example, `http://localhost:15000`. Defaults to empty.
+* **spannerOmniPlainText**: Use an unencrypted gRPC channel to Spanner Omni. Only used when `spannerOmniEndpoint` is set. Defaults to: true.
 * **disabledAlgorithms**: Comma separated algorithms to disable. If this value is set to `none`, no algorithm is disabled. Use this parameter with caution, because the algorithms disabled by default might have vulnerabilities or performance issues. For example, `SSLv3, RC4`.
 * **extraFilesToStage**: Comma separated Cloud Storage paths or Secret Manager secrets for files to stage in the worker. These files are saved in the /extra_files directory in each worker. For example, `gs://<BUCKET_NAME>/file.txt,projects/<PROJECT_ID>/secrets/<SECRET_ID>/versions/<VERSION_ID>`.
 
@@ -173,6 +175,8 @@ export UNIFORMIZATION_STAGE_COUNT_HINT=0
 export FAILURE_INJECTION_PARAMETER=""
 export MAX_COMMIT_DELAY=-1
 export GCS_OUTPUT_DIRECTORY=""
+export SPANNER_OMNI_ENDPOINT=""
+export SPANNER_OMNI_PLAIN_TEXT=true
 export DISABLED_ALGORITHMS=<disabledAlgorithms>
 export EXTRA_FILES_TO_STAGE=<extraFilesToStage>
 
@@ -207,6 +211,8 @@ gcloud dataflow flex-template run "sourcedb-to-spanner-flex-job" \
   --parameters "failureInjectionParameter=$FAILURE_INJECTION_PARAMETER" \
   --parameters "maxCommitDelay=$MAX_COMMIT_DELAY" \
   --parameters "gcsOutputDirectory=$GCS_OUTPUT_DIRECTORY" \
+  --parameters "spannerOmniEndpoint=$SPANNER_OMNI_ENDPOINT" \
+  --parameters "spannerOmniPlainText=$SPANNER_OMNI_PLAIN_TEXT" \
   --parameters "disabledAlgorithms=$DISABLED_ALGORITHMS" \
   --parameters "extraFilesToStage=$EXTRA_FILES_TO_STAGE"
 ```
@@ -256,6 +262,8 @@ export UNIFORMIZATION_STAGE_COUNT_HINT=0
 export FAILURE_INJECTION_PARAMETER=""
 export MAX_COMMIT_DELAY=-1
 export GCS_OUTPUT_DIRECTORY=""
+export SPANNER_OMNI_ENDPOINT=""
+export SPANNER_OMNI_PLAIN_TEXT=true
 export DISABLED_ALGORITHMS=<disabledAlgorithms>
 export EXTRA_FILES_TO_STAGE=<extraFilesToStage>
 
@@ -266,7 +274,7 @@ mvn clean package -PtemplatesRun \
 -Dregion="$REGION" \
 -DjobName="sourcedb-to-spanner-flex-job" \
 -DtemplateName="Sourcedb_to_Spanner_Flex" \
--Dparameters="sourceDbDialect=$SOURCE_DB_DIALECT,jdbcDriverJars=$JDBC_DRIVER_JARS,jdbcDriverClassName=$JDBC_DRIVER_CLASS_NAME,sourceConfigURL=$SOURCE_CONFIG_URL,tables=$TABLES,numPartitions=$NUM_PARTITIONS,fetchSize=$FETCH_SIZE,instanceId=$INSTANCE_ID,databaseId=$DATABASE_ID,projectId=$PROJECT_ID,spannerHost=$SPANNER_HOST,maxConnections=$MAX_CONNECTIONS,sessionFilePath=$SESSION_FILE_PATH,outputDirectory=$OUTPUT_DIRECTORY,transformationJarPath=$TRANSFORMATION_JAR_PATH,transformationClassName=$TRANSFORMATION_CLASS_NAME,transformationCustomParameters=$TRANSFORMATION_CUSTOM_PARAMETERS,insertOnlyModeForSpannerMutations=$INSERT_ONLY_MODE_FOR_SPANNER_MUTATIONS,batchSizeForSpannerMutations=$BATCH_SIZE_FOR_SPANNER_MUTATIONS,spannerPriority=$SPANNER_PRIORITY,tableOverrides=$TABLE_OVERRIDES,columnOverrides=$COLUMN_OVERRIDES,schemaOverridesFilePath=$SCHEMA_OVERRIDES_FILE_PATH,uniformizationStageCountHint=$UNIFORMIZATION_STAGE_COUNT_HINT,failureInjectionParameter=$FAILURE_INJECTION_PARAMETER,maxCommitDelay=$MAX_COMMIT_DELAY,gcsOutputDirectory=$GCS_OUTPUT_DIRECTORY,disabledAlgorithms=$DISABLED_ALGORITHMS,extraFilesToStage=$EXTRA_FILES_TO_STAGE" \
+-Dparameters="sourceDbDialect=$SOURCE_DB_DIALECT,jdbcDriverJars=$JDBC_DRIVER_JARS,jdbcDriverClassName=$JDBC_DRIVER_CLASS_NAME,sourceConfigURL=$SOURCE_CONFIG_URL,tables=$TABLES,numPartitions=$NUM_PARTITIONS,fetchSize=$FETCH_SIZE,instanceId=$INSTANCE_ID,databaseId=$DATABASE_ID,projectId=$PROJECT_ID,spannerHost=$SPANNER_HOST,maxConnections=$MAX_CONNECTIONS,sessionFilePath=$SESSION_FILE_PATH,outputDirectory=$OUTPUT_DIRECTORY,transformationJarPath=$TRANSFORMATION_JAR_PATH,transformationClassName=$TRANSFORMATION_CLASS_NAME,transformationCustomParameters=$TRANSFORMATION_CUSTOM_PARAMETERS,insertOnlyModeForSpannerMutations=$INSERT_ONLY_MODE_FOR_SPANNER_MUTATIONS,batchSizeForSpannerMutations=$BATCH_SIZE_FOR_SPANNER_MUTATIONS,spannerPriority=$SPANNER_PRIORITY,tableOverrides=$TABLE_OVERRIDES,columnOverrides=$COLUMN_OVERRIDES,schemaOverridesFilePath=$SCHEMA_OVERRIDES_FILE_PATH,uniformizationStageCountHint=$UNIFORMIZATION_STAGE_COUNT_HINT,failureInjectionParameter=$FAILURE_INJECTION_PARAMETER,maxCommitDelay=$MAX_COMMIT_DELAY,gcsOutputDirectory=$GCS_OUTPUT_DIRECTORY,spannerOmniEndpoint=$SPANNER_OMNI_ENDPOINT,spannerOmniPlainText=$SPANNER_OMNI_PLAIN_TEXT,disabledAlgorithms=$DISABLED_ALGORITHMS,extraFilesToStage=$EXTRA_FILES_TO_STAGE" \
 -f v2/sourcedb-to-spanner
 ```
 
@@ -338,6 +346,8 @@ resource "google_dataflow_flex_template_job" "sourcedb_to_spanner_flex" {
     # failureInjectionParameter = ""
     # maxCommitDelay = "-1"
     # gcsOutputDirectory = ""
+    # spannerOmniEndpoint = ""
+    # spannerOmniPlainText = "true"
     # disabledAlgorithms = "<disabledAlgorithms>"
     # extraFilesToStage = "<extraFilesToStage>"
   }

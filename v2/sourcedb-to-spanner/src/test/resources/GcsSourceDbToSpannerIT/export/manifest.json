@@ -1,0 +1,50 @@
+{
+  "formatVersion": 1,
+  "fileFormat": "AVRO",
+  "exportId": "it",
+  "producer": "GcsSourceDbToSpannerIT fixture",
+  "source": {
+    "system": "arangodb",
+    "database": "shop",
+    "serverVersion": "3.11.14",
+    "exportStartedAt": "2026-10-17T10:00:00Z",
+    "exportFinishedAt": "2026-10-17T10:00:05Z",
+    "consistent": true
+  },
+  "tables": [
+    {
+      "name": "user_profiles",
+      "sourceName": "user-profiles",
+      "collectionType": "DOCUMENT",
+      "primaryKey": ["key"],
+      "columns": [
+        {"name": "key", "type": "STRING", "nullable": false, "sourceName": "_key"},
+        {"name": "id", "type": "STRING", "nullable": true, "sourceName": "_id"},
+        {"name": "rev", "type": "STRING", "nullable": true, "sourceName": "_rev"},
+        {"name": "doc", "type": "JSON", "nullable": false, "sourceName": "$"}
+      ],
+      "rowCount": 3,
+      "sourceCountBefore": 3,
+      "sourceCountAfter": 3,
+      "files": [{"path": "tables/user_profiles/part-00000-c000.avro", "rows": 3}]
+    },
+    {
+      "name": "knows",
+      "sourceName": "knows",
+      "collectionType": "EDGE",
+      "primaryKey": ["key"],
+      "columns": [
+        {"name": "key", "type": "STRING", "nullable": false, "sourceName": "_key"},
+        {"name": "id", "type": "STRING", "nullable": true, "sourceName": "_id"},
+        {"name": "rev", "type": "STRING", "nullable": true, "sourceName": "_rev"},
+        {"name": "from_id", "type": "STRING", "nullable": false, "sourceName": "_from"},
+        {"name": "to_id", "type": "STRING", "nullable": false, "sourceName": "_to"},
+        {"name": "doc", "type": "JSON", "nullable": false, "sourceName": "$"}
+      ],
+      "rowCount": 2,
+      "sourceCountBefore": 2,
+      "sourceCountAfter": 2,
+      "files": [{"path": "tables/knows/part-00000-c000.avro", "rows": 2}]
+    }
+  ]
+}

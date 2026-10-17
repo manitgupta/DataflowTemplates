@@ -524,7 +524,11 @@ public class PipelineControllerTest {
         mockConfigContainer);
 
     // Verify it returns early or doesn't call IOWrapper
-    org.mockito.Mockito.verifyNoInteractions(mockConfigContainer);
+    org.mockito.Mockito.verify(mockConfigContainer, org.mockito.Mockito.never())
+        .getIOWrapper(any(), any());
+    // The source may still check its table list (GCS fails on unmigrated manifest tables).
+    org.mockito.Mockito.verify(mockConfigContainer)
+        .validateSelectedSourceTables(new java.util.ArrayList<>(), true);
   }
 
   @Test

@@ -26,11 +26,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.cloud.spanner.Options.RpcPriority;
 import com.google.cloud.teleport.v2.common.CommonTemplateJvmInitializer;
 import com.google.cloud.teleport.v2.options.SourceDbToSpannerOptions;
 import com.google.cloud.teleport.v2.spanner.migrations.shard.Shard;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.AstraConnectionConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.CassandraConnectionConfig;
+import com.google.cloud.teleport.v2.spanner.migrations.source.config.GcsSourceConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.JdbcShardConfig;
 import java.util.Arrays;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
@@ -176,5 +178,125 @@ public class SourceDbToSpannerTest {
     mockOptions.setSourceDbDialect(SourceDbToSpannerOptions.MYSQL_SOURCE_DIALECT);
     jdbcConfig.setShardConfigs(Arrays.asList(shard1, shard2));
     SourceDbToSpanner.validateOptions(mockOptions, jdbcConfig);
+  }
+
+  @Test
+  public void testCreateSpannerConfig_omniUnset_noExperimentalHost() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setProjectId("testProject");
+    options.setInstanceId("testInstance");
+    options.setDatabaseId("testDatabaseId");
+
+    SpannerConfig config = SourceDbToSpanner.createSpannerConfig(options);
+
+    assertEquals("testProject", config.getProjectId().get());
+    assertEquals("testInstance", config.getInstanceId().get());
+    assertThat(config.getExperimentalHost()).isNull();
+    assertThat(config.getPlainText()).isNull();
+    assertEquals("testProject", options.getProjectId());
+  }
+
+  @Test
+  public void testCreateSpannerConfig_omniBlank_usesCloudSpanner() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setProjectId("testProject");
+    options.setInstanceId("testInstance");
+    options.setDatabaseId("testDatabaseId");
+    options.setSpannerOmniEndpoint("   ");
+
+    SpannerConfig config = SourceDbToSpanner.createSpannerConfig(options);
+
+    assertEquals("testProject", config.getProjectId().get());
+    assertThat(config.getExperimentalHost()).isNull();
+  }
+
+  @Test
+  public void testCreateSpannerConfig_omniPlainText() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setProjectId("testProject");
+    options.setInstanceId("testInstance");
+    options.setDatabaseId("shop");
+    options.setSpannerPriority(RpcPriority.MEDIUM);
+    options.setSpannerOmniEndpoint("http://localhost:15000");
+
+    SpannerConfig config = SourceDbToSpanner.createSpannerConfig(options);
+
+    assertEquals("default", config.getProjectId().get());
+    assertEquals("default", config.getInstanceId().get());
+    assertEquals("shop", config.getDatabaseId().get());
+    assertEquals("http://localhost:15000", config.getExperimentalHost().get());
+    assertThat(config.getPlainText().get()).isTrue();
+    assertEquals(RpcPriority.MEDIUM, config.getRpcPriority().get());
+    assertThat(config.getMaxCommitDelay()).isNull();
+    // Options are rewritten so downstream code sees the Omni ids.
+    assertEquals("default", options.getProjectId());
+    assertEquals("default", options.getInstanceId());
+  }
+
+  @Test
+  public void testCreateSpannerConfig_omniNoPlainText() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setDatabaseId("shop");
+    options.setSpannerOmniEndpoint("https://omni.example.com:15000");
+    options.setSpannerOmniPlainText(false);
+
+    SpannerConfig config = SourceDbToSpanner.createSpannerConfig(options);
+
+    assertEquals("https://omni.example.com:15000", config.getExperimentalHost().get());
+    assertThat(config.getPlainText() == null || !config.getPlainText().get()).isTrue();
+  }
+
+  @Test
+  public void testCreateSpannerConfig_omniMaxCommitDelay() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setDatabaseId("shop");
+    options.setSpannerOmniEndpoint("http://localhost:15000");
+    options.setMaxCommitDelay(42L);
+
+    SpannerConfig config = SourceDbToSpanner.createSpannerConfig(options);
+
+    assertEquals(Duration.millis(42L), config.getMaxCommitDelay().get());
+  }
+
+  @Test
+  public void testValidateOptions_gcs() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setSourceDbDialect(SourceDbToSpannerOptions.GCS_SOURCE_DIALECT);
+
+    // Valid config.
+    SourceDbToSpanner.validateOptions(
+        options, GcsSourceConfig.fromUri("gs://my-bucket/export/manifest.json"));
+
+    // Wrong config type.
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> SourceDbToSpanner.validateOptions(options, new JdbcShardConfig()));
+    assertEquals("GCS dialect should have GcsSourceConfig source config.", exception.getMessage());
+
+    // gcsOutputDirectory only warns.
+    options.setGcsOutputDirectory("gs://my-bucket/avro");
+    SourceDbToSpanner.validateOptions(
+        options, GcsSourceConfig.fromUri("gs://my-bucket/export/manifest.json"));
+  }
+
+  @Test
+  public void testRun_gcsValidationFailure() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setProjectId("testProject");
+    options.setInstanceId("testInstance");
+    options.setDatabaseId("testDatabaseId");
+    options.setSourceDbDialect(SourceDbToSpannerOptions.GCS_SOURCE_DIALECT);
+    options
+        .as(org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions.class)
+        .setWorkerMachineType("n2-standard-4");
+
+    try (MockedStatic<PipelineController> mockedPipelineController =
+        mockStatic(PipelineController.class)) {
+      mockedPipelineController
+          .when(() -> PipelineController.getSourceConnectionConfig(any(), any()))
+          .thenReturn(mock(JdbcShardConfig.class));
+      assertThrows(IllegalArgumentException.class, () -> SourceDbToSpanner.run(options));
+    }
   }
 }

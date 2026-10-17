@@ -23,6 +23,7 @@ import com.google.cloud.teleport.v2.options.SourceDbToSpannerOptions;
 import com.google.cloud.teleport.v2.source.ISrcToSpSourceConnector;
 import com.google.cloud.teleport.v2.source.SourceConnectorFactory;
 import com.google.cloud.teleport.v2.spanner.migrations.shard.Shard;
+import com.google.cloud.teleport.v2.spanner.migrations.source.config.GcsSourceConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.JdbcShardConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.SourceConnectionConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.utils.DataflowWorkerMachineTypeUtils;
@@ -36,6 +37,8 @@ import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A template that copies data from a relational database using JDBC to an existing Spanner
@@ -68,6 +71,11 @@ import org.apache.commons.lang3.StringUtils;
       "The relational database must be accessible from the subnet where Dataflow runs."
     })
 public class SourceDbToSpanner {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SourceDbToSpanner.class);
+
+  /** Project and instance id used by Spanner Omni, which has no project or instance concept. */
+  @VisibleForTesting static final String SPANNER_OMNI_DEFAULT_ID = "default";
 
   /**
    * Main entry point for executing the pipeline. This will run the pipeline asynchronously. If
@@ -116,6 +124,15 @@ public class SourceDbToSpanner {
         }
       }
     }
+    if (SourceDbToSpannerOptions.GCS_SOURCE_DIALECT.equals(options.getSourceDbDialect())) {
+      Preconditions.checkArgument(
+          sourceConnectionConfig instanceof GcsSourceConfig,
+          "GCS dialect should have GcsSourceConfig source config.");
+      if (StringUtils.isNotBlank(options.getGcsOutputDirectory())) {
+        LOG.warn(
+            "gcsOutputDirectory is set for GCS source; source rows will be re-written as Avro.");
+      }
+    }
   }
 
   /**
@@ -148,8 +165,22 @@ public class SourceDbToSpanner {
     return connector.executeMigration(options, sourceConnectionConfig, pipeline, spannerConfig);
   }
 
+  /**
+   * Creates the {@link SpannerConfig} for the target database.
+   *
+   * <p>When {@code spannerOmniEndpoint} is set, the config targets a self-managed Spanner Omni
+   * deployment through the experimental host, with {@code default} as project and instance id (the
+   * pipeline options are updated accordingly so that downstream code sees consistent values).
+   *
+   * @param options The execution parameters to the pipeline.
+   * @return The Spanner config.
+   */
   @VisibleForTesting
   static SpannerConfig createSpannerConfig(SourceDbToSpannerOptions options) {
+    String omniEndpoint = options.getSpannerOmniEndpoint();
+    if (StringUtils.isNotBlank(omniEndpoint)) {
+      return createSpannerOmniConfig(options, omniEndpoint.trim());
+    }
     SpannerConfig spannerConfig =
         SpannerConfig.create()
             .withProjectId(ValueProvider.StaticValueProvider.of(options.getProjectId()))
@@ -161,5 +192,27 @@ public class SourceDbToSpanner {
       spannerConfig = spannerConfig.withMaxCommitDelay(options.getMaxCommitDelay());
     }
     return spannerConfig;
+  }
+
+  private static SpannerConfig createSpannerOmniConfig(
+      SourceDbToSpannerOptions options, String omniEndpoint) {
+    LOG.info("Writing to Spanner Omni at {}", omniEndpoint);
+    // Spanner Omni has no project / instance; the client uses "default" for both.
+    options.setProjectId(SPANNER_OMNI_DEFAULT_ID);
+    options.setInstanceId(SPANNER_OMNI_DEFAULT_ID);
+    SpannerConfig omniConfig =
+        SpannerConfig.create()
+            .withProjectId(ValueProvider.StaticValueProvider.of(SPANNER_OMNI_DEFAULT_ID))
+            .withInstanceId(ValueProvider.StaticValueProvider.of(SPANNER_OMNI_DEFAULT_ID))
+            .withDatabaseId(ValueProvider.StaticValueProvider.of(options.getDatabaseId()))
+            .withExperimentalHost(ValueProvider.StaticValueProvider.of(omniEndpoint))
+            .withRpcPriority(ValueProvider.StaticValueProvider.of(options.getSpannerPriority()));
+    if (Boolean.TRUE.equals(options.getSpannerOmniPlainText())) {
+      omniConfig = omniConfig.withUsingPlainTextChannel(true);
+    }
+    if (options.getMaxCommitDelay() >= 0) {
+      omniConfig = omniConfig.withMaxCommitDelay(options.getMaxCommitDelay());
+    }
+    return omniConfig;
   }
 }

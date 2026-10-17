@@ -181,6 +181,11 @@
             <groupId>org.apache.beam</groupId>
             <artifactId>beam-sdks-java-io-cassandra</artifactId>
         </dependency>
+        <!-- AvroIO for the GCS (manifest + Avro files) source. -->
+        <dependency>
+            <groupId>org.apache.beam</groupId>
+            <artifactId>beam-sdks-java-extensions-avro</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.microsoft.sqlserver</groupId>
             <artifactId>mssql-jdbc</artifactId>

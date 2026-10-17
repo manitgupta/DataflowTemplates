@@ -33,4 +33,11 @@ public final class DbConfigContainerDefaultImpl implements DbConfigContainer {
   public IoWrapper getIOWrapper(List<String> sourceTables, OnSignal<?> waitOnSignal) {
     return this.ioWrapperFactory.getIOWrapper(sourceTables, waitOnSignal);
   }
+
+  /** Delegates to {@link IoWrapperFactory#validateSelectedSourceTables}. */
+  @Override
+  public void validateSelectedSourceTables(
+      List<String> selectedSourceTables, boolean tablesConfigured) {
+    this.ioWrapperFactory.validateSelectedSourceTables(selectedSourceTables, tablesConfigured);
+  }
 }

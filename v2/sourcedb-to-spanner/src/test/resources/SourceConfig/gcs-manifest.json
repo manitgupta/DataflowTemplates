@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "fileFormat": "AVRO",
+  "exportId": "20261017T100000Z",
+  "producer": "arangodb-gcs-exporter/1.0.0 (spark 3.5.3, connector 1.10.0)",
+  "source": {
+    "system": "arangodb",
+    "database": "shop",
+    "serverVersion": "3.11.14",
+    "exportStartedAt": "2026-10-17T10:00:00Z",
+    "exportFinishedAt": "2026-10-17T10:04:12Z",
+    "consistent": true
+  },
+  "tables": [
+    {
+      "name": "user_profiles",
+      "sourceName": "user-profiles",
+      "collectionType": "DOCUMENT",
+      "primaryKey": ["key"],
+      "columns": [
+        {"name": "key", "type": "STRING", "nullable": false, "sourceName": "_key"},
+        {"name": "id",  "type": "STRING", "nullable": true,  "sourceName": "_id"},
+        {"name": "rev", "type": "STRING", "nullable": true,  "sourceName": "_rev"},
+        {"name": "doc", "type": "JSON",   "nullable": false, "sourceName": "$"}
+      ],
+      "rowCount": 1000,
+      "sourceCountBefore": 1000,
+      "sourceCountAfter": 1000,
+      "sourceRevisionBefore": "_iK3x9--_-",
+      "sourceRevisionAfter": "_iK3x9--_-",
+      "files": [
+        {"path": "tables/user_profiles/part-00000-1b2c-c000.snappy.avro", "rows": 512},
+        {"path": "tables/user_profiles/part-00001-1b2c-c000.snappy.avro", "rows": 488}
+      ],
+      "stats": {"maxDocBytes": 20311, "oversizedKeys": []}
+    },
+    {
+      "name": "knows",
+      "sourceName": "knows",
+      "collectionType": "EDGE",
+      "primaryKey": ["key"],
+      "columns": [
+        {"name": "key",     "type": "STRING", "nullable": false, "sourceName": "_key"},
+        {"name": "id",      "type": "STRING", "nullable": true,  "sourceName": "_id"},
+        {"name": "rev",     "type": "STRING", "nullable": true,  "sourceName": "_rev"},
+        {"name": "from_id", "type": "STRING", "nullable": false, "sourceName": "_from"},
+        {"name": "to_id",   "type": "STRING", "nullable": false, "sourceName": "_to"},
+        {"name": "doc",     "type": "JSON",   "nullable": false, "sourceName": "$"}
+      ],
+      "rowCount": 3,
+      "sourceCountBefore": 3,
+      "sourceCountAfter": 3,
+      "files": [{"path": "tables/knows/part-00000-77aa-c000.snappy.avro", "rows": 3}],
+      "stats": {"maxDocBytes": 140, "oversizedKeys": []}
+    }
+  ]
+}

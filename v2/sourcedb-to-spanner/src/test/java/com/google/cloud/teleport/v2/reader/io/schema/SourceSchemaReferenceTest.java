@@ -20,6 +20,8 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.cloud.teleport.v2.reader.io.jdbc.JdbcSchemaReference;
 import com.google.cloud.teleport.v2.reader.io.schema.SourceSchemaReference.Kind;
 import com.google.cloud.teleport.v2.source.cassandra.reader.io.cassandra.schema.CassandraSchemaReference;
+import com.google.cloud.teleport.v2.source.gcs.schema.GcsSchemaReference;
+import org.apache.beam.sdk.util.SerializableUtils;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -43,5 +45,24 @@ public class SourceSchemaReferenceTest {
         .isEqualTo(cassandraSchemaReference.getName());
     assertThat(SourceSchemaReference.ofCassandra(cassandraSchemaReference).cassandra())
         .isEqualTo(cassandraSchemaReference);
+  }
+
+  @Test
+  public void testSourceSchemaReferenceGcs() {
+    GcsSchemaReference gcsSchemaReference =
+        GcsSchemaReference.builder().setExportId("20261017T100000Z").build();
+    SourceSchemaReference ref = SourceSchemaReference.ofGcs(gcsSchemaReference);
+    assertThat(ref.getKind()).isEqualTo(Kind.GCS);
+    assertThat(ref.gcs()).isEqualTo(gcsSchemaReference);
+    assertThat(ref.getName()).isEqualTo(gcsSchemaReference.getName());
+    assertThat(ref.getName()).isEqualTo("GcsExport.20261017T100000Z");
+    assertThat(ref)
+        .isEqualTo(
+            SourceSchemaReference.ofGcs(
+                GcsSchemaReference.builder().setExportId("20261017T100000Z").build()));
+    assertThat(ref)
+        .isNotEqualTo(
+            SourceSchemaReference.ofGcs(GcsSchemaReference.builder().setExportId("x").build()));
+    assertThat(SerializableUtils.clone(ref)).isEqualTo(ref);
   }
 }

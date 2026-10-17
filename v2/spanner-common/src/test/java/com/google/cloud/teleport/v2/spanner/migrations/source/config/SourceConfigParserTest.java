@@ -21,6 +21,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.cloud.teleport.v2.spanner.migrations.shard.Shard;
@@ -385,5 +386,25 @@ public class SourceConfigParserTest {
             IllegalArgumentException.class,
             () -> parser.parseConfiguration("unsupported_db", "dummy/path.json"));
     assertEquals("Unsupported source type: unsupported_db", exception.getMessage());
+  }
+
+  @Test
+  public void testParseConfiguration_Gcs_Success() throws Exception {
+    SourceConnectionConfig config =
+        parser.parseConfiguration("gcs", "gs://bucket/export/manifest.json");
+    assertEquals(new GcsSourceConfig("gs://bucket/export/manifest.json"), config);
+    verifyNoInteractions(mockSecretManagerAccessor);
+  }
+
+  @Test
+  public void testParseConfiguration_Gcs_UpperCaseAndDirectory() throws Exception {
+    SourceConnectionConfig config =
+        parser.parseConfiguration("GCS", "gs://bucket/export/", /* resolveSecrets= */ false);
+    assertEquals("gs://bucket/export/manifest.json", ((GcsSourceConfig) config).getManifestPath());
+  }
+
+  @Test
+  public void testParseConfiguration_Gcs_BlankPathThrows() {
+    assertThrows(IllegalArgumentException.class, () -> parser.parseConfiguration("gcs", " "));
   }
 }

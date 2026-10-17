@@ -104,6 +104,19 @@ public class DeadLetterQueueTest {
   }
 
   @Test
+  public void testCreateGcsSourceDlq() {
+    DeadLetterQueue dlq =
+        DeadLetterQueue.create("testDir", spannerDdl, "gcs", getIdentityMapper(spannerDdl));
+    assertEquals("testDir", dlq.getDlqDirectory());
+    assertTrue(dlq.createDLQTransform("testDir") instanceof WriteDLQ);
+    // GCS exports are written to the DLQ with the MySQL source type (retry tooling compatibility).
+    String dlqJson =
+        dlq.mutationToDlqElement(Mutation.newInsertBuilder("testTable").set("id").to(1).build())
+            .getOriginalPayload();
+    assertTrue(dlqJson, dlqJson.contains("\"_metadata_source_type\":\"mysql\""));
+  }
+
+  @Test
   public void testCreateLogDlq() {
 
     final String testTable = "srcTable";

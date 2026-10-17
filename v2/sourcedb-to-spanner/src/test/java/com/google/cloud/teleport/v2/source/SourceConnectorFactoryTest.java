@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThrows;
 import com.google.cloud.teleport.v2.options.SourceDbToSpannerOptions;
 import com.google.cloud.teleport.v2.reader.io.jdbc.iowrapper.config.SQLDialect;
 import com.google.cloud.teleport.v2.source.cassandra.CassandraSrcToSpSourceConnector;
+import com.google.cloud.teleport.v2.source.gcs.GcsSrcToSpSourceConnector;
 import com.google.cloud.teleport.v2.source.jdbc.AbstractJdbcSrcToSpSourceConnector;
 import com.google.cloud.teleport.v2.source.mysql.MySqlSrcToSpSourceConnector;
 import com.google.cloud.teleport.v2.source.postgres.PostgresSrcToSpSourceConnector;
@@ -100,6 +101,16 @@ public class SourceConnectorFactoryTest {
     ISrcToSpSourceConnector connector = SourceConnectorFactory.getSourceConnectorByDialect(options);
 
     assertThat(connector).isInstanceOf(SqlServerSrcToSpSourceConnector.class);
+  }
+
+  @Test
+  public void testGetSourceConnectorByDialect_optionsGcs() {
+    SourceDbToSpannerOptions options = PipelineOptionsFactory.as(SourceDbToSpannerOptions.class);
+    options.setSourceDbDialect(SourceDbToSpannerOptions.GCS_SOURCE_DIALECT);
+
+    ISrcToSpSourceConnector connector = SourceConnectorFactory.getSourceConnectorByDialect(options);
+
+    assertThat(connector).isInstanceOf(GcsSrcToSpSourceConnector.class);
   }
 
   @Test
@@ -209,6 +220,14 @@ public class SourceConnectorFactoryTest {
     ISrcToSpSourceConnector connector =
         SourceConnectorFactory.getSourceConnectorBySourceType(Constants.SQLSERVER_SOURCE_TYPE);
     assertThat(connector).isInstanceOf(SqlServerSrcToSpSourceConnector.class);
+  }
+
+  @Test
+  public void testGetSourceConnectorBySourceType_gcs() {
+    ISrcToSpSourceConnector connector =
+        SourceConnectorFactory.getSourceConnectorBySourceType(Constants.GCS_SOURCE_TYPE);
+    assertThat(connector).isInstanceOf(GcsSrcToSpSourceConnector.class);
+    assertThat(connector.getSourceType()).isEqualTo("gcs");
   }
 
   @Test
