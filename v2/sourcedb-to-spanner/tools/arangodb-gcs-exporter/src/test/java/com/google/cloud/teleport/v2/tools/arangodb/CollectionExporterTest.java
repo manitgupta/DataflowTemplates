@@ -55,6 +55,21 @@ public class CollectionExporterTest {
   }
 
   @Test
+  public void endpointForRotatesOverAllCoordinators() {
+    java.util.Map<String, String> opts =
+        java.util.Collections.singletonMap("endpoints", "c0:8529, c1:8529,c2:8529");
+    assertThat(CollectionExporter.endpointFor(opts, 0)).isEqualTo("c0:8529");
+    assertThat(CollectionExporter.endpointFor(opts, 1)).isEqualTo("c1:8529");
+    assertThat(CollectionExporter.endpointFor(opts, 2)).isEqualTo("c2:8529");
+    assertThat(CollectionExporter.endpointFor(opts, 3)).isEqualTo("c0:8529");
+    assertThat(CollectionExporter.endpointFor(opts, 64 * 7 + 5)).isEqualTo("c0:8529");
+    assertThat(
+            CollectionExporter.endpointFor(
+                java.util.Collections.singletonMap("endpoints", "only:8529"), 41))
+        .isEqualTo("only:8529");
+  }
+
+  @Test
   public void directories() {
     CollectionPlan plan = CollectionPlan.create(USERS, "users", 1);
     String dir = CollectionExporter.tableDir("gs://b/e/x1", plan);

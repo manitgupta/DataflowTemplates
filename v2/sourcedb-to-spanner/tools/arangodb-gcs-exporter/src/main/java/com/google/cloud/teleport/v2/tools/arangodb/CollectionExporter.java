@@ -99,6 +99,19 @@ public final class CollectionExporter {
     return result;
   }
 
+  /**
+   * Returns the single coordinator that partition query {@code queryIndex} is sent to.
+   *
+   * <p>A query-mode read is one Spark partition, and the connector's driver sends it to the first
+   * configured endpoint (no load balancing), so passing the full list would funnel every export
+   * query through one coordinator. Rotating a single endpoint per query spreads the gather and
+   * {@code JSON_STRINGIFY} work over all coordinators.
+   */
+  static String endpointFor(Map<String, String> connOpts, int queryIndex) {
+    String[] endpoints = connOpts.get("endpoints").split(",");
+    return endpoints[Math.floorMod(queryIndex, endpoints.length)].trim();
+  }
+
   /** Output directory of batch {@code index}. */
   static String batchDir(String tableDir, int index) {
     return String.format("%s/b%05d", tableDir, index);
@@ -200,13 +213,14 @@ public final class CollectionExporter {
         .setJobDescription(
             "arangodb-gcs-exporter " + plan.sourceName() + " batch " + index + " -> " + outDir);
     Dataset<Row> union = null;
-    for (String q : queries) {
+    for (int i = 0; i < queries.size(); i++) {
       Dataset<Row> df =
           spark
               .read()
               .format(ARANGO_FORMAT)
               .options(connOpts)
-              .option("query", q)
+              .option("endpoints", endpointFor(connOpts, index * opts.rangesPerWrite() + i))
+              .option("query", queries.get(i))
               .schema(plan.structType())
               .load();
       union = union == null ? df : union.union(df);
