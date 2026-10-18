@@ -303,6 +303,16 @@ public class DeadLetterQueue implements Serializable {
           case BOOL:
             val = value.getBool();
             break;
+          case STRING:
+            // Value.toString() abbreviates long values ("..."), which made DLQ rows unreplayable.
+            val = value.getString();
+            break;
+          case JSON:
+            val = value.getJson();
+            break;
+          case PG_JSONB:
+            val = value.getPgJsonb();
+            break;
           case ARRAY:
             if (value.getType().getArrayElementType().getCode() == Type.Code.BYTES) {
               val =

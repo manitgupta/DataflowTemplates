@@ -38,12 +38,34 @@ def stmt_for(table, cols):
     return f'INSERT OR UPDATE INTO `{table}` ({names}) VALUES ({vals})'
 
 
+def fetch_from_arango(arango, table_to_coll, table, keys):
+    """Re-reads full documents by key (the DLQ only keeps a truncated preview of JSON values)."""
+    import base64, urllib.request
+    url, db, auth = arango
+    q = ('FOR k IN @keys LET d = DOCUMENT(@@c, k) FILTER d != null RETURN {key: d._key, id: d._id, rev: d._rev, '
+         'from_id: d._from, to_id: d._to, doc: JSON_STRINGIFY(d)}')
+    body = json.dumps({'query': q, 'bindVars': {'keys': keys, '@c': table_to_coll.get(table, table)},
+                       'batchSize': 10000}).encode()
+    req = urllib.request.Request(f'{url}/_db/{db}/_api/cursor', data=body, method='POST',
+                                 headers={'Authorization': 'Basic ' + base64.b64encode(auth.encode()).decode()})
+    res = json.load(urllib.request.urlopen(req, timeout=600))
+    out = res['result']
+    while res.get('hasMore'):
+        req = urllib.request.Request(f"{url}/_db/{db}/_api/cursor/{res['id']}", data=b'', method='POST',
+                                     headers={'Authorization': 'Basic ' + base64.b64encode(auth.encode()).decode()})
+        res = json.load(urllib.request.urlopen(req, timeout=600))
+        out += res['result']
+    return out
+
+
 def worker(args):
-    files, inst, db, batch, dry = args
+    files, inst, db, batch, dry, arango, table_to_coll = args
     gcs = storage.Client()
     database = spanner.Client().instance(inst).database(db)
     stats = collections.Counter()
     pending = []
+    if arango:
+        return worker_refetch(files, database, batch, dry, arango, table_to_coll, gcs)
 
     def flush():
         if not pending or dry:
@@ -74,6 +96,46 @@ def worker(args):
     return stats
 
 
+def upsert(database, table, rows, dry):
+    """Upserts envelope rows with DML, JSON column via PARSE_JSON(..., wide_number_mode=>'round')."""
+    if dry or not rows:
+        return
+    stmts = []
+    for r in rows:
+        cols = [c for c in ('key', 'id', 'rev', 'from_id', 'to_id', 'doc') if r.get(c) is not None]
+        stmts.append((stmt_for(table, cols), {c: r[c] for c in cols}, {c: spanner.param_types.STRING for c in cols}))
+
+    def txn(t):
+        status, _ = t.batch_update(stmts)
+        if status.code != 0:
+            raise RuntimeError(f'batch_update failed: {status}')
+    database.run_in_transaction(txn)
+
+
+def worker_refetch(files, database, batch, dry, arango, table_to_coll, gcs):
+    stats = collections.Counter()
+    keys = collections.defaultdict(list)
+
+    def drain(table, final=False):
+        while keys[table] and (final or len(keys[table]) >= 1000):
+            chunk, keys[table] = keys[table][:1000], keys[table][1000:]
+            rows = fetch_from_arango(arango, table_to_coll, table, chunk)
+            stats[table + ':missing_in_source'] += len(chunk) - len(rows)
+            for i in range(0, len(rows), batch):
+                upsert(database, table, rows[i:i + batch], dry)
+            stats[table] += len(rows)
+
+    for bucket, name in files:
+        for line in gcs.bucket(bucket).blob(name).download_as_text().splitlines():
+            if line.strip():
+                table, row = parse_line(line)
+                keys[table].append(row['key'])
+                drain(table)
+    for table in list(keys):
+        drain(table, final=True)
+    return stats
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dlq')
@@ -82,7 +144,13 @@ def main():
     ap.add_argument('--procs', type=int, default=32)
     ap.add_argument('--batch', type=int, default=200)
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--arango-url', help='re-read full documents from ArangoDB by key (e.g. http://10.30.1.10:8529)')
+    ap.add_argument('--arango-db', default='shop10t')
+    ap.add_argument('--arango-auth', default='root:')
+    ap.add_argument('--table-map', default='', help='table=collection,... when names differ')
     a = ap.parse_args()
+    table_to_coll = dict(kv.split('=') for kv in a.table_map.split(',') if kv)
+    coords = a.arango_url.split(',') if a.arango_url else []
     files = list_files(a.dlq)
     print(f'{len(files)} DLQ files under {a.dlq}', flush=True)
     if not files:
@@ -92,7 +160,10 @@ def main():
     t0 = time.time()
     total = collections.Counter()
     with mp.Pool(len(chunks)) as pool:
-        for s in pool.imap_unordered(worker, [(c, a.instance, a.database, a.batch, a.dry_run) for c in chunks]):
+        jobs = [(c, a.instance, a.database, a.batch, a.dry_run,
+                 (coords[i % len(coords)], a.arango_db, a.arango_auth) if coords else None, table_to_coll)
+                for i, c in enumerate(chunks)]
+        for s in pool.imap_unordered(worker, jobs):
             total.update(s)
             print(f'progress {sum(total.values()):,} rows {dict(total)}', flush=True)
     print(f'REPLAY_DONE rows={sum(total.values()):,} per_table={dict(total)} elapsed={time.time() - t0:,.0f}s '

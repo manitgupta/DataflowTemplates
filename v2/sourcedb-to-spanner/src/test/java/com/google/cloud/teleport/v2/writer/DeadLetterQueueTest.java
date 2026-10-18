@@ -117,6 +117,28 @@ public class DeadLetterQueueTest {
   }
 
   @Test
+  public void testMutationDlqKeepsFullStringAndJsonValues() {
+    DeadLetterQueue dlq =
+        DeadLetterQueue.create("testDir", spannerDdl, "gcs", getIdentityMapper(spannerDdl));
+    String longText = "x".repeat(5000);
+    String doc = "{\"_key\":\"k1\",\"_id\":\"users/k1\",\"bio\":\"" + longText + "\"}";
+    String dlqJson =
+        dlq.mutationToDlqElement(
+                Mutation.newInsertOrUpdateBuilder("users")
+                    .set("key")
+                    .to("k1")
+                    .set("bio")
+                    .to(longText)
+                    .set("doc")
+                    .to(com.google.cloud.spanner.Value.json(doc))
+                    .build())
+            .getOriginalPayload();
+    org.json.JSONObject parsed = new org.json.JSONObject(dlqJson);
+    assertEquals(longText, parsed.getString("bio"));
+    assertEquals(doc, parsed.getString("doc"));
+  }
+
+  @Test
   public void testCreateLogDlq() {
 
     final String testTable = "srcTable";
