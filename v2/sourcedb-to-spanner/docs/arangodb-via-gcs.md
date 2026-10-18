@@ -346,6 +346,12 @@ python3 tools/arangodb-gcs-exporter/e2e/validate.py --export-dir <export dir> \
      `tools/arangodb-gcs-exporter/e2e/replay_dlq.py`, which upserts each DLQ row with
      `PARSE_JSON(@doc, wide_number_mode=>'round')` so Spanner rounds just those numbers (by at
      most one ulp, e.g. `0.601049` becomes `0.6010490000000001`).
+   - **Throughput impact.** When a batch contains one such row, SpannerIO retries every row of
+     that batch as a single-row commit. Collections with many doubles per document can then
+     become commit-latency bound (in the 10 TB test `users`/`follows` dropped to ~135 k rows/s
+     with the CPU of both Spanner and the workers idle). Use smaller batches and more harness
+     threads for such tables, for example `--batchSizeForSpannerMutations=131072
+     --numberOfWorkerHarnessThreads=48` on `n2-highmem-16` workers, which restored ~700 k rows/s.
 3. **Size limits.** A JSON cell is limited to about 10 MiB and a commit to 100 MB.
    - Oversized documents go to the severe DLQ, and the exporter lists them in
      `stats.oversizedKeys`.
