@@ -334,6 +334,18 @@ python3 tools/arangodb-gcs-exporter/e2e/validate.py --export-dir <export dir> \
 
    The validator reports these as warnings. If you need byte-exact text, change the DDL to
    `doc STRING(MAX)`; the template accepts that with no code change.
+
+   **JSON numbers Spanner rejects.** Mutations parse JSON in Spanner's exact number mode, which
+   rejects a double whose text "cannot round-trip through string representation":
+   - ArangoDB's `JSON_STRINGIFY` sometimes prints doubles in a longer form than needed
+     (`0.46245000000000003`, `-9223372036854775808.0`). The GCS source rewrites such numbers
+     to their shortest round-trip form before writing (`JsonNumberCanonicalizer`), which is
+     the same double, so nothing is lost.
+   - A few doubles are rejected by Spanner in every textual form (in the 10 TB test, about
+     0.01% of rows, for example `0.601049`). Those rows go to the severe DLQ. Replay them with
+     `tools/arangodb-gcs-exporter/e2e/replay_dlq.py`, which upserts each DLQ row with
+     `PARSE_JSON(@doc, wide_number_mode=>'round')` so Spanner rounds just those numbers (by at
+     most one ulp, e.g. `0.601049` becomes `0.6010490000000001`).
 3. **Size limits.** A JSON cell is limited to about 10 MiB and a commit to 100 MB.
    - Oversized documents go to the severe DLQ, and the exporter lists them in
      `stats.oversizedKeys`.

@@ -89,9 +89,7 @@ public final class GcsMappingsProvider {
         case "STRING":
           return toStringValue(avroValue);
         case "JSON":
-          return (avroValue instanceof ByteBuffer)
-              ? toStringValue(avroValue)
-              : avroValue.toString();
+          return JsonNumberCanonicalizer.canonicalize(toStringValue(avroValue));
         case "LONG":
           return toLong(avroValue, upperType);
         case "DOUBLE":

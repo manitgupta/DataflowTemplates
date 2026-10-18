@@ -97,7 +97,8 @@ public class GcsAvroRecordToSourceRowFnTest {
     assertThat(payload.get("key")).isEqualTo("u1");
     assertThat(payload.get("id")).isEqualTo("user_profiles/u1");
     assertThat(payload.get("rev")).isEqualTo("_revu1");
-    assertThat(payload.get("doc")).isEqualTo("{\"_key\":\"u1\",\"n\":1.50}");
+    // JSON numbers are canonicalized to their shortest round-trip form (Spanner requirement).
+    assertThat(payload.get("doc")).isEqualTo("{\"_key\":\"u1\",\"n\":1.5}");
     Schema docSchema = payload.getSchema().getField("doc").schema().getTypes().get(1);
     assertThat(docSchema.getProp("logicalType")).isEqualTo("json");
   }
