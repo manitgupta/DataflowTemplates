@@ -414,4 +414,14 @@ public class SpannerReaderTransformTest implements Serializable {
     pipeline.apply(transform);
     pipeline.run();
   }
+
+  @org.junit.Test
+  public void partitionedReadsOnlyForCloudSpanner() {
+    SpannerConfig cloud =
+        SpannerConfig.create().withProjectId("p").withInstanceId("i").withDatabaseId("d");
+    assertTrue(SpannerReaderTransform.usePartitionedReads(cloud));
+    SpannerConfig omni =
+        cloud.withExperimentalHost("http://10.0.0.5:15000").withUsingPlainTextChannel(true);
+    assertEquals(false, SpannerReaderTransform.usePartitionedReads(omni));
+  }
 }

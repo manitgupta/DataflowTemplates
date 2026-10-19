@@ -82,6 +82,18 @@ public class SpannerReaderTransform
         // we read from a snapshot ~15s ago to avoid locking, 15s is okay because
         // we expect batch validation to start >> 15s after bulk migration is finished.
         .withTimestampBound(TimestampBound.ofExactStaleness(15, TimeUnit.SECONDS))
-        .withBatching(true);
+        .withBatching(usePartitionedReads(spannerConfig));
+  }
+
+  /**
+   * Partitioned (batch) reads for Cloud Spanner. Against Spanner Omni (experimental host) some
+   * partition streams of large tables never returned on a single-server deployment, so each table
+   * is read with one streaming query instead.
+   */
+  @VisibleForTesting
+  static boolean usePartitionedReads(SpannerConfig spannerConfig) {
+    return spannerConfig.getExperimentalHost() == null
+        || spannerConfig.getExperimentalHost().get() == null
+        || spannerConfig.getExperimentalHost().get().isBlank();
   }
 }
