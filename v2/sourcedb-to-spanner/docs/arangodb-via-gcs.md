@@ -363,8 +363,13 @@ python3 tools/arangodb-gcs-exporter/e2e/validate.py --export-dir <export dir> \
    - A few doubles are rejected by Spanner in every textual form (in the 10 TB test, about
      0.01% of rows, for example `0.601049`). Those rows go to the severe DLQ. Replay them with
      `tools/arangodb-gcs-exporter/e2e/replay_dlq.py`, which upserts each DLQ row with
-     `PARSE_JSON(@doc, wide_number_mode=>'round')` so Spanner rounds just those numbers (by at
-     most one ulp, e.g. `0.601049` becomes `0.6010490000000001`).
+     `PARSE_JSON(@doc, wide_number_mode=>'round')` so Spanner stores them in round mode. For the
+     values seen in testing this keeps the exact double: Spanner just prints it with 17 digits
+     (`0.601049` is stored and returned as `0.6010490000000001`, which is the same IEEE double).
+   - **Validating with gcs-spanner-dv.** The export is in the bulk template's GCS format, so the
+     validation template can compare it with Spanner row by row:
+     `--gcsInputDirectory=<export root>`. JSON values are hashed in a canonical form (sorted keys,
+     numbers by value), so Spanner's JSON normalization does not cause false mismatches.
    - **Throughput impact.** When a batch contains one such row, SpannerIO retries every row of
      that batch as a single-row commit. Collections with many doubles per document can then
      become commit-latency bound (in the 10 TB test `users`/`follows` dropped to ~135 k rows/s

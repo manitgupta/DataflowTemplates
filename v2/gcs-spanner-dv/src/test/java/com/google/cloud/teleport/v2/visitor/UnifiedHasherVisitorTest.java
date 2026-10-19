@@ -210,10 +210,24 @@ public class UnifiedHasherVisitorTest {
     visitor.visitJson(input);
     HashCode actualHash = hasher.hash();
 
+    // JSON is hashed in canonical form (sorted keys, no whitespace).
     HashCode expectedHash =
-        Hashing.murmur3_128().newHasher().putByte((byte) 1).putString(input, UTF_8).hash();
+        Hashing.murmur3_128()
+            .newHasher()
+            .putByte((byte) 1)
+            .putString("{\"key\":\"value\"}", UTF_8)
+            .hash();
 
     assertEquals(expectedHash, actualHash);
+  }
+
+  @Test
+  public void testVisitJsonIgnoresKeyOrderAndNumberText() {
+    Hasher h1 = Hashing.murmur3_128().newHasher();
+    new UnifiedHasherVisitor(h1).visitJson("{\"b\": 1.50, \"a\": [1, -9223372036854775808.0]}");
+    Hasher h2 = Hashing.murmur3_128().newHasher();
+    new UnifiedHasherVisitor(h2).visitJson("{\"a\":[1,-9.223372036854776e+18],\"b\":1.5}");
+    assertEquals(h1.hash(), h2.hash());
   }
 
   @Test

@@ -118,9 +118,10 @@ public class UnifiedHasherVisitor implements IUnifiedVisitor {
 
   @Override
   public void visitJson(String j) {
-    // Json values are encoded with a sentinel byte 1 followed by the json value as a string
+    // Json values are encoded with a sentinel byte 1 followed by the canonical json text: Spanner
+    // normalizes JSON (key order, whitespace, number text), so raw source text would never match.
     markNonNull();
-    hasher.putString(j, StandardCharsets.UTF_8);
+    hasher.putString(JsonCanonicalizer.canonicalize(j), StandardCharsets.UTF_8);
   }
 
   @Override
