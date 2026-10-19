@@ -48,6 +48,29 @@ public class GCSSpannerDVTest {
   }
 
   @Test
+  public void testCreateSpannerConfigForSpannerOmni() {
+    options.setSpannerOmniEndpoint("http://10.0.0.5:15000");
+    org.apache.beam.sdk.io.gcp.spanner.SpannerConfig config =
+        GCSSpannerDV.createSpannerConfig(options);
+    org.junit.Assert.assertEquals("http://10.0.0.5:15000", config.getExperimentalHost().get());
+    org.junit.Assert.assertEquals("default", config.getProjectId().get());
+    org.junit.Assert.assertEquals("default", config.getInstanceId().get());
+    org.junit.Assert.assertEquals("test-database", config.getDatabaseId().get());
+    org.junit.Assert.assertTrue(config.getPlainText().get());
+    org.junit.Assert.assertEquals("default", options.getInstanceId());
+  }
+
+  @Test
+  public void testCreateSpannerConfigForSpannerOmniTls() {
+    options.setSpannerOmniEndpoint("https://omni:15000");
+    options.setSpannerOmniPlainText(false);
+    org.apache.beam.sdk.io.gcp.spanner.SpannerConfig config =
+        GCSSpannerDV.createSpannerConfig(options);
+    org.junit.Assert.assertEquals("https://omni:15000", config.getExperimentalHost().get());
+    org.junit.Assert.assertTrue(config.getPlainText() == null || !config.getPlainText().get());
+  }
+
+  @Test
   public void testRunThrowsExceptionWhenBothTableConfigsProvided() {
     options.setTables("table1,table2");
     options.setTableConfigurationFilePath("gs://dummy/tables.json");

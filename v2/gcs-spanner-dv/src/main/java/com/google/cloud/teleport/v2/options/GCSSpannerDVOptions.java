@@ -257,4 +257,32 @@ public interface GCSSpannerDVOptions extends PipelineOptions {
   String getShardIds();
 
   void setShardIds(String value);
+
+  @TemplateParameter.Text(
+      order = 19,
+      optional = true,
+      groupName = "Target",
+      description = "Spanner Omni endpoint",
+      helpText =
+          "Endpoint of a self-managed Spanner Omni deployment, for example `http://10.0.0.5:15000`."
+              + " When set, the pipeline validates against Spanner Omni instead of Cloud Spanner;"
+              + " `projectId` and `instanceId` are ignored and `default` is used for both.",
+      example = "http://localhost:15000")
+  @Default.String("")
+  String getSpannerOmniEndpoint();
+
+  void setSpannerOmniEndpoint(String value);
+
+  @TemplateParameter.Boolean(
+      order = 20,
+      optional = true,
+      groupName = "Target",
+      description = "Use plaintext channel for Spanner Omni",
+      helpText =
+          "Use an unencrypted gRPC channel to Spanner Omni. Only used when `spannerOmniEndpoint` is"
+              + " set. Defaults to: true.")
+  @Default.Boolean(true)
+  Boolean getSpannerOmniPlainText();
+
+  void setSpannerOmniPlainText(Boolean value);
 }

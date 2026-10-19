@@ -141,6 +141,22 @@ public class GCSSpannerDV {
 
   @VisibleForTesting
   static SpannerConfig createSpannerConfig(GCSSpannerDVOptions options) {
+    String omniEndpoint = options.getSpannerOmniEndpoint();
+    if (omniEndpoint != null && !omniEndpoint.isBlank()) {
+      // Spanner Omni has no project / instance; the client uses "default" for both.
+      options.setProjectId("default");
+      options.setInstanceId("default");
+      SpannerConfig omniConfig =
+          SpannerConfig.create()
+              .withProjectId(ValueProvider.StaticValueProvider.of("default"))
+              .withInstanceId(ValueProvider.StaticValueProvider.of("default"))
+              .withDatabaseId(ValueProvider.StaticValueProvider.of(options.getDatabaseId()))
+              .withExperimentalHost(ValueProvider.StaticValueProvider.of(omniEndpoint.trim()))
+              .withRpcPriority(ValueProvider.StaticValueProvider.of(options.getSpannerPriority()));
+      return Boolean.TRUE.equals(options.getSpannerOmniPlainText())
+          ? omniConfig.withUsingPlainTextChannel(true)
+          : omniConfig;
+    }
     return SpannerConfig.create()
         .withProjectId(ValueProvider.StaticValueProvider.of(options.getProjectId()))
         .withHost(ValueProvider.StaticValueProvider.of(options.getSpannerHost()))
