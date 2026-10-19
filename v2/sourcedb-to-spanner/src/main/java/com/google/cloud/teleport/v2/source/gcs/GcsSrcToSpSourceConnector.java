@@ -27,8 +27,9 @@ import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 
 /**
- * Source connector for exports on GCS described by a manifest (e.g. produced by the ArangoDB Spark
- * exporter).
+ * Source connector for Avro exports on GCS in the bulk migration format (see {@code
+ * com.google.cloud.teleport.v2.spanner.migrations.gcs.BulkGcsFormat}), e.g. written by this
+ * template's {@code gcsOutputDirectory} or by the ArangoDB Spark exporter.
  */
 public class GcsSrcToSpSourceConnector implements ISrcToSpSourceConnector {
 

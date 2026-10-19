@@ -15,6 +15,7 @@
  */
 package com.google.cloud.teleport.v2.tools.arangodb;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,7 +25,12 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.ChecksumFileSystem;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SaveMode;
@@ -35,8 +41,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Exports one collection: plans its AQL partition queries, groups them into batches of {@code
  * --rangesPerWrite}, and writes every batch as an independent Spark job (union of its partition
- * reads) to {@code tables/<table>/b<batch:05d>/}. Batches run concurrently on a shared write pool
- * of size {@code --parallelWrites}.
+ * reads) to the staging directory {@code _staging/<table>/b<batch:05d>/}. Batches run concurrently
+ * on a shared write pool of size {@code --parallelWrites}. When all batches are written, the part
+ * files are renamed to {@code <table>/<md5Hex(schema)>-NNNNN-of-MMMMM.avro} (the naming of the
+ * SourceDB to Spanner bulk GCS sink) and the table's staging directory is deleted.
  */
 public final class CollectionExporter {
 
@@ -44,11 +52,35 @@ public final class CollectionExporter {
 
   static final String ARANGO_FORMAT = "com.arangodb.spark";
 
+  /** Staging directory below the export root; deleted when the export is complete. */
+  static final String STAGING_DIR = "_staging";
+
+  /** Upper bound of concurrent renames when committing a table's files. */
+  static final int MAX_PARALLEL_RENAMES = 32;
+
   private CollectionExporter() {}
 
-  /** The table output directory: {@code <exportRoot>/tables/<table>}. */
+  /** The table output directory: {@code <exportRoot>/<table>}. */
   public static String tableDir(String exportRoot, CollectionPlan plan) {
-    return exportRoot + "/tables/" + plan.tableName();
+    return exportRoot + "/" + plan.tableName();
+  }
+
+  /** The staging root: {@code <exportRoot>/_staging}. */
+  public static String stagingRoot(String exportRoot) {
+    return exportRoot + "/" + STAGING_DIR;
+  }
+
+  /** The table staging directory: {@code <exportRoot>/_staging/<table>}. */
+  public static String stagingDir(String exportRoot, CollectionPlan plan) {
+    return stagingRoot(exportRoot) + "/" + plan.tableName();
+  }
+
+  /**
+   * Final name of data file {@code index} of {@code total}: {@code
+   * <md5>-<index:05d>-of-<total:05d>.avro}, as the bulk sink's Beam default naming produces.
+   */
+  static String bulkFileName(String schemaMd5, int index, int total) {
+    return String.format("%s-%05d-of-%05d.avro", schemaMd5, index, total);
   }
 
   /**
@@ -118,7 +150,8 @@ public final class CollectionExporter {
   }
 
   /**
-   * Writes all partition queries of a collection and returns the table output directory URI.
+   * Writes all partition queries of a collection to staging, commits the files into the table
+   * directory with bulk names and returns the table output directory URI.
    *
    * @param writePool pool on which batch writes run (shared by all collections)
    */
@@ -132,26 +165,102 @@ public final class CollectionExporter {
       ExecutorService writePool)
       throws Exception {
     String tableDir = tableDir(exportRoot, plan);
+    String stagingDir = stagingDir(exportRoot, plan);
     List<List<String>> batches = batches(queries, opts.rangesPerWrite());
     LOG.info(
-        "{}: {} partition queries in {} write batches -> {}",
+        "{}: {} partition queries in {} write batches -> {} (staging {})",
         plan.sourceName(),
         queries.size(),
         batches.size(),
-        tableDir);
+        tableDir,
+        stagingDir);
     List<Callable<Void>> tasks = new ArrayList<>();
     for (int b = 0; b < batches.size(); b++) {
       final int index = b;
       final List<String> batch = batches.get(b);
       tasks.add(
           () -> {
-            writeBatch(spark, plan, batch, connOpts, batchDir(tableDir, index), opts, index);
+            writeBatch(spark, plan, batch, connOpts, batchDir(stagingDir, index), opts, index);
             return null;
           });
     }
     // Fail fast: the first failing batch cancels every Spark job (the whole export fails anyway).
     runAllFailFast(writePool, tasks, () -> spark.sparkContext().cancelAllJobs());
+    commit(stagingDir, tableDir, plan, spark.sparkContext().hadoopConfiguration());
     return tableDir;
+  }
+
+  /**
+   * Moves every staged part file ({@code *.avro} below {@code stagingDir}, hidden files skipped)
+   * into {@code tableDir} as {@code <md5>-NNNNN-of-MMMMM.avro}, in sorted staging path order, then
+   * deletes {@code stagingDir} (with Spark's {@code _SUCCESS} markers). Renames run in parallel.
+   *
+   * @return the final file paths, in index order
+   * @throws IllegalStateException if a destination exists or a rename fails
+   */
+  static List<Path> commit(
+      String stagingDir, String tableDir, CollectionPlan plan, Configuration conf)
+      throws Exception {
+    List<Path> staged = new ArrayList<>(HadoopFiles.listFiles(stagingDir, ".avro", conf));
+    Collections.sort(staged);
+    Path target = new Path(tableDir);
+    FileSystem fs = target.getFileSystem(conf);
+    // On file:// the checksummed LocalFileSystem would also move the hidden .crc files into the
+    // table directory; renaming with the raw file system keeps only the data files there.
+    FileSystem renameFs =
+        fs instanceof ChecksumFileSystem ? ((ChecksumFileSystem) fs).getRawFileSystem() : fs;
+    if (!staged.isEmpty() && !fs.mkdirs(target)) {
+      throw new IllegalStateException("Cannot create " + tableDir);
+    }
+    List<Path> finals = new ArrayList<>();
+    List<Callable<Void>> renames = new ArrayList<>();
+    for (int i = 0; i < staged.size(); i++) {
+      Path src = staged.get(i);
+      Path dst =
+          fs.makeQualified(new Path(target, bulkFileName(plan.avroSchemaMd5(), i, staged.size())));
+      finals.add(dst);
+      renames.add(
+          () -> {
+            if (fs.exists(dst)) {
+              throw new IllegalStateException("Destination " + dst + " already exists");
+            }
+            if (!renameFs.rename(src, dst)) {
+              throw new IllegalStateException("Cannot rename " + src + " to " + dst);
+            }
+            return null;
+          });
+    }
+    if (!renames.isEmpty()) {
+      ExecutorService pool =
+          Executors.newFixedThreadPool(
+              Math.min(MAX_PARALLEL_RENAMES, renames.size()),
+              r -> {
+                Thread t = new Thread(r, "arangodb-gcs-exporter-rename");
+                t.setDaemon(true);
+                return t;
+              });
+      try {
+        runAllFailFast(pool, renames, () -> {});
+      } finally {
+        pool.shutdownNow();
+      }
+    }
+    Path staging = new Path(stagingDir);
+    FileSystem stagingFs = staging.getFileSystem(conf);
+    if (stagingFs.exists(staging) && !stagingFs.delete(staging, true)) {
+      throw new IllegalStateException("Cannot delete staging directory " + stagingDir);
+    }
+    LOG.info("{}: committed {} files to {}", plan.sourceName(), finals.size(), tableDir);
+    return finals;
+  }
+
+  /** Deletes {@code <exportRoot>/_staging} if it exists (it is empty after all commits). */
+  static void deleteStagingRoot(String exportRoot, Configuration conf) throws IOException {
+    Path staging = new Path(stagingRoot(exportRoot));
+    FileSystem fs = staging.getFileSystem(conf);
+    if (fs.exists(staging) && !fs.delete(staging, true)) {
+      throw new IOException("Cannot delete " + staging);
+    }
   }
 
   /**
@@ -226,14 +335,7 @@ public final class CollectionExporter {
       union = union == null ? df : union.union(df);
     }
     long start = System.nanoTime();
-    union
-        .write()
-        .format("avro")
-        .option("avroSchema", plan.avroSchemaJson())
-        .option("compression", opts.compression())
-        .option("maxRecordsPerFile", Long.toString(opts.maxRecordsPerFile()))
-        .mode(SaveMode.ErrorIfExists)
-        .save(outDir);
+    writeAvro(plan.toBulkRecords(union), plan, opts, outDir);
     LOG.info(
         "{}: batch {} ({} queries) written to {} in {} s",
         plan.sourceName(),
@@ -241,5 +343,22 @@ public final class CollectionExporter {
         queries.size(),
         outDir,
         (System.nanoTime() - start) / 1_000_000_000L);
+  }
+
+  /**
+   * Writes bulk records ({@link CollectionPlan#toBulkRecords}) to {@code outDir} with spark-avro
+   * and the plan's writer schema, so the file header schema is exactly {@link
+   * CollectionPlan#avroSchemaJson()}.
+   */
+  static void writeAvro(
+      Dataset<Row> records, CollectionPlan plan, ExporterOptions opts, String outDir) {
+    records
+        .write()
+        .format("avro")
+        .option("avroSchema", plan.avroSchemaJson())
+        .option("compression", opts.compression())
+        .option("maxRecordsPerFile", Long.toString(opts.maxRecordsPerFile()))
+        .mode(SaveMode.ErrorIfExists)
+        .save(outDir);
   }
 }

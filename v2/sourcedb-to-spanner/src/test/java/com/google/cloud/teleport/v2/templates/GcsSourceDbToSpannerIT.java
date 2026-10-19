@@ -42,7 +42,8 @@ import org.junit.runners.JUnit4;
 
 /**
  * Integration test for {@link SourceDbToSpanner} with the {@code GCS} dialect: migrates an
- * ArangoDB-style Avro export (manifest plus Avro files) from Cloud Storage into Spanner.
+ * ArangoDB-style Avro export in the bulk migration format ({@code
+ * <root>/<tableName>/<md5>-NNNNN-of-MMMMM.avro}) from Cloud Storage into Spanner.
  */
 @Category({TemplateIntegrationTest.class, SkipDirectRunnerTest.class})
 @TemplateIntegrationTest(SourceDbToSpanner.class)
@@ -53,9 +54,8 @@ public class GcsSourceDbToSpannerIT extends SourceDbToSpannerITBase {
   private static final String SPANNER_DDL_RESOURCE = RESOURCE_DIR + "spanner-schema.sql";
   private static final List<String> EXPORT_FILES =
       List.of(
-          "export/manifest.json",
-          "export/tables/user_profiles/part-00000-c000.avro",
-          "export/tables/knows/part-00000-c000.avro");
+          "export/user_profiles/b36539a80425c7f2c6178856a7bb935f-00000-of-00001.avro",
+          "export/knows/a7f80905c6bc6e9912edef8c18d80a52-00000-of-00001.avro");
 
   private SpannerResourceManager spannerResourceManager;
 
@@ -77,7 +77,7 @@ public class GcsSourceDbToSpannerIT extends SourceDbToSpannerITBase {
   public void gcsExportToSpanner() throws IOException {
     Map<String, String> jobParameters = new HashMap<>();
     jobParameters.put("sourceDbDialect", "GCS");
-    jobParameters.put("sourceConfigURL", getGcsPath("export/manifest.json", gcsClient));
+    jobParameters.put("sourceConfigURL", getGcsPath("export", gcsClient));
     jobParameters.put("outputDirectory", getGcsPath("output", gcsClient));
 
     PipelineLauncher.LaunchInfo jobInfo =

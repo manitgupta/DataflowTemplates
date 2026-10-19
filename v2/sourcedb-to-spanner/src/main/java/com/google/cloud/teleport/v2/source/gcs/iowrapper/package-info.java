@@ -14,5 +14,5 @@
  * the License.
  */
 
-/** {@link com.google.cloud.teleport.v2.reader.io.IoWrapper} for the GCS file export source. */
+/** {@link com.google.cloud.teleport.v2.reader.io.IoWrapper} for the GCS Avro export source. */
 package com.google.cloud.teleport.v2.source.gcs.iowrapper;

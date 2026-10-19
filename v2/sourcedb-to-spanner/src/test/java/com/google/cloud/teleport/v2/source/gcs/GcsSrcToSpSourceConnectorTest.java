@@ -68,10 +68,7 @@ public class GcsSrcToSpSourceConnectorTest {
 
       PipelineResult result =
           connector.executeMigration(
-              options,
-              new GcsSourceConfig("gs://my-bucket/exp/manifest.json"),
-              pipeline,
-              spannerConfig);
+              options, new GcsSourceConfig("gs://my-bucket/exp"), pipeline, spannerConfig);
 
       assertThat(result).isSameInstanceAs(expected);
       controller.verify(

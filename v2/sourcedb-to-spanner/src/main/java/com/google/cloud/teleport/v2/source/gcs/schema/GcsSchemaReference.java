@@ -18,14 +18,14 @@ package com.google.cloud.teleport.v2.source.gcs.schema;
 import com.google.auto.value.AutoValue;
 import java.io.Serializable;
 
-/** Reference to the "schema" of a GCS file export, identified by its export id. */
+/** Reference to the "schema" of a GCS Avro export, identified by its export id. */
 @AutoValue
 public abstract class GcsSchemaReference implements Serializable {
 
   private static final String NAME_PREFIX = "GcsExport.";
   private static final int MAX_NAME_LENGTH = 64;
 
-  /** Export id from the manifest. */
+  /** Export id: the last path segment of the export root directory. */
   public abstract String exportId();
 
   public static Builder builder() {

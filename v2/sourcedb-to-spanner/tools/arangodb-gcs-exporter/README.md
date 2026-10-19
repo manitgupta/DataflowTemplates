@@ -1,9 +1,10 @@
 # ArangoDB to GCS exporter (Spark)
 
-A Spark 3.5 job that exports ArangoDB collections to Avro files plus a `manifest.json` on
-any Hadoop-compatible file system (`gs://`, `hdfs://`, `file://`). The SourceDB to Spanner
-template then imports the export with `sourceDbDialect=GCS` and
-`sourceConfigURL=<output>/<exportId>/manifest.json`.
+A Spark 3.5 job that exports ArangoDB collections on any Hadoop-compatible file system
+(`gs://`, `hdfs://`, `file://`) in exactly the format the SourceDB to Spanner bulk template
+writes with `--gcsOutputDirectory` (see [Output format](#output-format)). The template then
+imports the export with `sourceDbDialect=GCS` and `sourceConfigURL=<output>/<exportId>/` (the
+export root directory), and the GCS-to-Spanner validation template can read it too.
 
 Every document is exported losslessly as a fixed envelope. Documents become
 `key, id, rev, doc`; edges become `key, id, rev, from_id, to_id, doc`. Here `doc` is
@@ -81,7 +82,7 @@ Exit codes:
 |---|---|
 | 0 | Success. |
 | 1 | Invalid options or input, for example unknown collections or an existing export. |
-| 2 | Inconsistent export: the source changed, counts differ, or partition verification failed. No manifest is written. |
+| 2 | Inconsistent export: the source changed, counts differ, or partition verification failed. No `arangodb-export.json` is written. |
 | 3 | Any other failure. |
 
 ### Options
@@ -104,15 +105,15 @@ Exit codes:
 | `--partitions` | `0` (auto) | Partitions per collection. Auto is `ceil(count / targetDocsPerPartition)`, clamped to `[1, maxPartitions]`. For HASH, auto is also capped at 64. |
 | `--targetDocsPerPartition` | `2000000` | |
 | `--maxPartitions` | `20000` | |
-| `--rangesPerWrite` | `64` | Partition queries unioned into one Spark write (one `b<nnnnn>/` directory). |
+| `--rangesPerWrite` | `64` | Partition queries unioned into one Spark write (one staging directory `_staging/<table>/b<nnnnn>/`). |
 | `--parallelWrites` | `8` | Concurrent Spark writes (shared by all collections). Use `spark.scheduler.mode=FAIR`. |
 | `--parallelCollections` | `1` | Collections exported concurrently. |
 | `--batchSize` | `1000` | Connector cursor batch size for the export queries (metadata queries use at least 10000). A batch holds about `2 x batchSize x average document size` on the coordinator and on the Spark task (document plus its `JSON_STRINGIFY` copy): aim for 32-64 MB, e.g. keep 1000 up to ~16 KB documents and use ~50 for 1 MB documents. |
 | `--cursorTtlSeconds` | `600` | AQL cursor TTL. |
-| `--maxRecordsPerFile` | `2000000` | |
+| `--maxRecordsPerFile` | `2000000` | Upper bound of records per Avro file. |
 | `--compression` | `snappy` | `snappy`, `deflate` or `uncompressed`. |
 | `--ddlEdgeHelpers` | `true` | Generated `from_coll/from_key/to_coll/to_key` columns and `from_id`/`to_id` indexes in the GoogleSQL DDL. |
-| `--allowLiveSource` | `false` | Write the manifest with `consistent=false` instead of failing when the source changed. |
+| `--allowLiveSource` | `false` | Write `arangodb-export.json` with `consistent=false` instead of failing when the source changed. |
 | `--verifyPartitions` | `false` | Count every partition with an index-only `COLLECT WITH COUNT` that uses the same FILTER text, and require the sum to equal the collection count before exporting. |
 | `--verifyRangePlans` | `true` | Explain the first, a middle and the last RANGE query of every collection and fail unless each is a primary-index range scan with no residual `FilterNode` or full scan (either would compare in AQL collation order and could drop or duplicate keys). |
 | `--planOnly` | `false` | Plan (and verify) the partitions, then stop. Nothing is written. |
@@ -124,14 +125,17 @@ For each collection the exporter does the following:
 
 1. Records the document count and the collection revision.
 2. Plans partitions.
-3. Writes batches of partition queries as independent Spark jobs to
-   `tables/<table>/b<nnnnn>/`.
-4. Reads the written files back, which is the ground truth for row counts.
-5. Records the count and revision again.
+3. Writes batches of partition queries as independent Spark jobs to the staging directories
+   `_staging/<table>/b<nnnnn>/`.
+4. Renames the staged part files (in parallel, Hadoop `FileSystem.rename`) to
+   `<table>/<md5>-NNNNN-of-MMMMM.avro` and deletes `_staging/<table>/`.
+5. Reads the final files back, which is the ground truth for row counts.
+6. Records the count and revision again.
 
 If the count or revision changed, or if the number of exported rows differs from the count,
-the export fails. The only exception is `--allowLiveSource=true`. `spanner-ddl-*.sql` is
-written next, and `manifest.json` is written **last**: its presence marks a complete export.
+the export fails. The only exception is `--allowLiveSource=true`. `_staging/` is removed,
+`spanner-ddl-*.sql` is written next, and `arangodb-export.json` is written **last**: its
+presence marks a complete export. The export root must be empty (or missing) when a run starts.
 
 ### RANGE partitioning (default)
 
@@ -161,7 +165,8 @@ live server.
 As an example, take 5 billion documents with the defaults. The exporter plans about 2,500
 ranges of about 2M documents, in 40 write batches of 64 ranges each. With
 `--parallelWrites=8`, up to 512 read tasks run at once, so give the cluster that many
-executor cores, or lower `parallelWrites`. Each range ends up as roughly one Avro file.
+executor cores, or lower `parallelWrites`. Each range ends up as roughly one Avro file. The
+final renames run up to 32 at a time per table; on GCS each is a server-side copy plus delete.
 
 Raise `--cursorTtlSeconds` if executors are slow to drain cursors. Quiesce the source during
 the export, because the consistency guard fails on any write.
@@ -170,20 +175,39 @@ the export, because the consistency guard fails on any write.
 
 ```
 <output>/<exportId>/
-  manifest.json                    written last (formatVersion 1)
+  <table>/<md5>-00000-of-MMMMM.avro ... <md5>-(MMMMM-1)-of-MMMMM.avro   (snappy-compressed Avro)
   spanner-ddl-googlesql.sql
   spanner-ddl-postgresql.sql
-  tables/<table>/b<nnnnn>/part-<nnnnn>-<uuid>-c000.avro   (snappy-compressed Avro; _SUCCESS ignored)
+  arangodb-export.json             summary, written last (formatVersion 2)
 ```
 
-Spark's Avro writer names files `...-c000.avro`, with no `.snappy` infix. The manifest lists
-every data file explicitly with its row count. The template reads exactly those files.
+This is the layout of the SourceDB to Spanner bulk GCS sink (`MigrateTableTransform.writeToGCS`):
+one directory per table, files named after the hex MD5 of the writer schema text plus Beam's
+default shard suffix (`NNNNN` counts from 0 per table, `MMMMM` is the number of files of the
+table). Nothing else is left in a table directory (no `_SUCCESS`, no staging files).
 
-The manifest fields, the Avro writer schemas (`ArangoDocumentRow`, `ArangoEdgeRow`) and the
-DDL conventions are specified in section 3 of the design (`docs/arangodb-via-gcs.md` in this
-repository). Table names are derived from collection names: lower case, `[^a-z0-9_]` becomes
-`_`, a `t_` prefix is added if the name does not start with a letter, and names are limited
-to 128 characters. A name collision fails the export.
+Every record is a `SourceRowWithMetadata`, the template's `SourceRow.gcsSchema()`:
+
+| Field | Value |
+|---|---|
+| `tableName` | the Spanner table name |
+| `shardId` | `null` |
+| `primaryKeys` | `["key"]` |
+| `payload` | documents: `key, id, rev, doc`; edges: `key, id, rev, from_id, to_id, doc` (all nullable strings; `doc` has `logicalType: json`) |
+
+The writer schemas are `src/main/resources/avro/arangodb-document.avsc` and
+`arangodb-edge.avsc`. They are byte for byte the schema text the template generates for such a
+table (a template unit test keeps them in lock-step), and the exporter writes them unchanged
+into the file headers, so the MD5 file prefixes equal the ones the template's sink would use.
+
+`arangodb-export.json` is informational; the template does not read it. It holds the source
+information (database, server version, start/finish time, `consistent`), and per table the
+collection, columns, `rowCount`, source counts and revisions before/after, every data file
+with its record count (`files[].path` relative to the export root) and statistics (largest
+`doc`, oversized keys). Table names are derived from collection names: lower case,
+`[^a-z0-9_]` becomes `_`, a `t_` prefix is added if the name does not start with a letter,
+and names are limited to 128 characters. A name collision fails the export. The DDL
+conventions are described in `docs/arangodb-via-gcs.md` in this repository.
 
 The DDL files contain no comments. To expose typed attributes, add stored generated
 columns, for example:
@@ -199,19 +223,21 @@ ALTER TABLE `user_profiles` ADD COLUMN `name` STRING(MAX) AS (JSON_VALUE(`doc`, 
   class) into a dedicated database. Defaults: `--arango-url http://10.30.1.10:8529`,
   `--database exporter_e2e`, empty password.
 - `e2e/validate.py` (`pip install google-cloud-spanner`) checks the following:
-  - the manifest and source counts;
+  - the bulk file layout (names, indexes, one schema MD5, nothing else in the table directory,
+    no `_staging/`);
+  - the `arangodb-export.json` counts against the source counts;
   - that Spanner `COUNT(*)` plus severe DLQ records equals `rowCount`;
   - sampled documents (canonical JSON; Spanner number normalisation is reported as WARN);
   - the edge helper columns.
 
-  A manifest table missing in Spanner is a FAIL (unless `--allow-missing-tables`), and at
+  A summary table missing in Spanner is a FAIL (unless `--allow-missing-tables`), and at
   least one table must pass the count check. `--dlq-dir` counts only `severe` records.
 - `e2e/apply_ddl.py` creates the Spanner/Omni database from the generated DDL, applies it to
   an empty existing database, or checks that the existing tables match it (fails otherwise).
 - `e2e/run-cluster-e2e.sh` runs against a real cluster without Docker. It seeds, runs RANGE
   and HASH plan and verify on `hostile_keys`, runs a full export with `--verifyPartitions`,
   and optionally creates the schema (`apply_ddl.py`), imports with the template and
-  validates. Spark runs locally (`SPARK_HOME`) or on Dataproc (`SPARK_MODE=dataproc`, which
+  validates (the template gets the export root as `sourceConfigURL`). Spark runs locally (`SPARK_HOME`) or on Dataproc (`SPARK_MODE=dataproc`, which
   needs `OUTPUT=gs://...` or `GCS_STAGING`).
 - `e2e/run-local-e2e.sh` runs the same flow with Docker: `arangodb/arangodb:3.11.14`, local
   Spark 3.5.3 and Spanner Omni.

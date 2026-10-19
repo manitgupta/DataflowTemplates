@@ -14,5 +14,5 @@
  * the License.
  */
 
-/** Schema reference for the GCS file export source. */
+/** Schema reference for the GCS Avro export source. */
 package com.google.cloud.teleport.v2.source.gcs.schema;

@@ -58,7 +58,7 @@ rm -rf "${WORK}/export/${EXPORT_ID}"
   "${EXP}/target/arangodb-gcs-exporter-1.0.0-SNAPSHOT-scala${SCALA_BIN}.jar" \
   --endpoints=localhost:8529 --database=shop --output="file://${WORK}/export" \
   --exportId="${EXPORT_ID}" --partitions=4 --rangesPerWrite=2 --verifyPartitions=true
-cat "${WORK}/export/${EXPORT_ID}/manifest.json"
+cat "${WORK}/export/${EXPORT_ID}/arangodb-export.json"
 
 log "3. Spanner Omni + DDL"
 docker rm -f spanneromni >/dev/null 2>&1 || true
@@ -76,7 +76,7 @@ rm -rf "${WORK}/out"
   && mvn -B -pl v2/sourcedb-to-spanner exec:java -Dexec.classpathScope=test \
     -Dexec.mainClass=com.google.cloud.teleport.v2.templates.SourceDbToSpanner \
     -Dexec.args="--runner=DirectRunner --sourceDbDialect=GCS \
-      --sourceConfigURL=${WORK}/export/${EXPORT_ID}/manifest.json \
+      --sourceConfigURL=${WORK}/export/${EXPORT_ID}/ \
       --projectId=default --instanceId=default --databaseId=shop \
       --spannerOmniEndpoint=http://localhost:15000 --outputDirectory=${WORK}/out/")
 

@@ -32,16 +32,16 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
-public class ManifestWriterTest {
+public class ExportSummaryWriterTest {
 
   @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
-  /** Builds exactly the example manifest of the design (section 3.2). */
-  static ExportManifest example() {
-    ExportManifest m = new ExportManifest();
+  /** Builds an example export summary (matches {@code golden/arangodb-export.json}). */
+  static ExportSummary example() {
+    ExportSummary m = new ExportSummary();
     m.exportId = "20261017T100000Z";
     m.producer = "arangodb-gcs-exporter/1.0.0 (spark 3.5.3, connector 1.10.0)";
-    m.source = new ExportManifest.Source();
+    m.source = new ExportSummary.Source();
     m.source.system = "arangodb";
     m.source.database = "shop";
     m.source.serverVersion = "3.12.4";
@@ -49,7 +49,7 @@ public class ManifestWriterTest {
     m.source.exportFinishedAt = "2026-10-17T10:04:12Z";
     m.source.consistent = true;
 
-    ExportManifest.Table users = new ExportManifest.Table();
+    ExportSummary.Table users = new ExportSummary.Table();
     users.name = "user_profiles";
     users.sourceName = "user-profiles";
     users.collectionType = "DOCUMENT";
@@ -69,13 +69,13 @@ public class ManifestWriterTest {
     users.files =
         new ArrayList<>(
             Arrays.asList(
-                new ExportManifest.FileEntry(
-                    "tables/user_profiles/part-00000-1b2c-c000.snappy.avro", 512),
-                new ExportManifest.FileEntry(
-                    "tables/user_profiles/part-00001-1b2c-c000.snappy.avro", 488)));
-    users.stats = new ExportManifest.Stats(20311, new ArrayList<>());
+                new ExportSummary.FileEntry(
+                    "user_profiles/b36539a80425c7f2c6178856a7bb935f-00000-of-00002.avro", 512),
+                new ExportSummary.FileEntry(
+                    "user_profiles/b36539a80425c7f2c6178856a7bb935f-00001-of-00002.avro", 488)));
+    users.stats = new ExportSummary.Stats(20311, new ArrayList<>());
 
-    ExportManifest.Table knows = new ExportManifest.Table();
+    ExportSummary.Table knows = new ExportSummary.Table();
     knows.name = "knows";
     knows.sourceName = "knows";
     knows.collectionType = "EDGE";
@@ -90,8 +90,9 @@ public class ManifestWriterTest {
     knows.files =
         new ArrayList<>(
             Arrays.asList(
-                new ExportManifest.FileEntry("tables/knows/part-00000-77aa-c000.snappy.avro", 3)));
-    knows.stats = new ExportManifest.Stats(140, new ArrayList<>());
+                new ExportSummary.FileEntry(
+                    "knows/a7f80905c6bc6e9912edef8c18d80a52-00000-of-00001.avro", 3)));
+    knows.stats = new ExportSummary.Stats(140, new ArrayList<>());
 
     m.tables.add(users);
     m.tables.add(knows);
@@ -99,7 +100,8 @@ public class ManifestWriterTest {
   }
 
   private static String golden() throws Exception {
-    try (InputStream in = ManifestWriterTest.class.getResourceAsStream("/golden/manifest.json")) {
+    try (InputStream in =
+        ExportSummaryWriterTest.class.getResourceAsStream("/golden/arangodb-export.json")) {
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);
     }
   }
@@ -107,7 +109,7 @@ public class ManifestWriterTest {
   @Test
   public void toJsonMatchesGolden() throws Exception {
     ObjectMapper mapper = new ObjectMapper();
-    String json = ManifestWriter.toJson(example());
+    String json = ExportSummaryWriter.toJson(example());
     assertThat(mapper.readTree(json)).isEqualTo(mapper.readTree(golden()));
     // Field order follows the contract.
     assertThat(json.indexOf("\"formatVersion\"")).isLessThan(json.indexOf("\"tables\""));
@@ -117,26 +119,28 @@ public class ManifestWriterTest {
 
   @Test
   public void roundTrip() throws Exception {
-    ExportManifest parsed = ManifestWriter.fromJson(golden());
-    assertThat(parsed.formatVersion).isEqualTo(1);
+    ExportSummary parsed = ExportSummaryWriter.fromJson(golden());
+    assertThat(parsed.formatVersion).isEqualTo(2);
     assertThat(parsed.fileFormat).isEqualTo("AVRO");
     assertThat(parsed.tables).hasSize(2);
     assertThat(parsed.tables.get(1).files.get(0).rows).isEqualTo(3);
     assertThat(parsed.tables.get(1).sourceRevisionBefore).isNull();
     ObjectMapper mapper = new ObjectMapper();
-    assertThat(mapper.readTree(ManifestWriter.toJson(parsed))).isEqualTo(mapper.readTree(golden()));
+    assertThat(mapper.readTree(ExportSummaryWriter.toJson(parsed)))
+        .isEqualTo(mapper.readTree(golden()));
   }
 
   @Test
   public void writeOnceToFileUri() throws Exception {
     Configuration conf = new Configuration();
     String root = tmp.newFolder("exp").toURI().toString().replaceAll("/$", "");
-    assertThat(ManifestWriter.exists(root, conf)).isFalse();
-    ManifestWriter.write(example(), root, conf);
-    assertThat(ManifestWriter.exists(root, conf)).isTrue();
-    String written = HadoopFiles.readString(root + "/manifest.json", conf);
+    assertThat(ExportSummaryWriter.exists(root, conf)).isFalse();
+    ExportSummaryWriter.write(example(), root, conf);
+    assertThat(ExportSummaryWriter.exists(root, conf)).isTrue();
+    String written = HadoopFiles.readString(root + "/" + ExportSummaryWriter.SUMMARY_FILE, conf);
     ObjectMapper mapper = new ObjectMapper();
     assertThat(mapper.readTree(written)).isEqualTo(mapper.readTree(golden()));
-    assertThrows(UncheckedIOException.class, () -> ManifestWriter.write(example(), root, conf));
+    assertThrows(
+        UncheckedIOException.class, () -> ExportSummaryWriter.write(example(), root, conf));
   }
 }

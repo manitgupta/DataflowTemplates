@@ -14,5 +14,9 @@
  * the License.
  */
 
-/** Source connector for file exports (manifest + Avro files) on GCS or any Beam FileSystem. */
+/**
+ * Source connector for Avro exports in the bulk migration format (see {@code
+ * com.google.cloud.teleport.v2.spanner.migrations.gcs.BulkGcsFormat}) on GCS or any Beam
+ * FileSystem.
+ */
 package com.google.cloud.teleport.v2.source.gcs;

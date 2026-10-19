@@ -14,5 +14,5 @@
  * the License.
  */
 
-/** Beam transforms reading the Avro files of a GCS file export into {@code SourceRow}s. */
+/** Beam transforms reading the Avro files of a GCS Avro export into {@code SourceRow}s. */
 package com.google.cloud.teleport.v2.source.gcs.reader;

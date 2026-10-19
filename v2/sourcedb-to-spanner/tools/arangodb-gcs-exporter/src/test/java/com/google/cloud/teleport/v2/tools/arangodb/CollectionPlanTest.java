@@ -58,32 +58,62 @@ public class CollectionPlanTest {
     assertThat(t.apply("doc").nullable()).isFalse();
   }
 
-  private static void assertAvroMatchesStruct(String json, StructType struct, String recordName) {
+  static final String DOCUMENT_SCHEMA_TEXT =
+      "{\"type\":\"record\",\"name\":\"SourceRowWithMetadata\",\"fields\":["
+          + "{\"name\":\"tableName\",\"type\":\"string\"},"
+          + "{\"name\":\"shardId\",\"type\":[\"string\",\"null\"]},"
+          + "{\"name\":\"primaryKeys\",\"type\":{\"type\":\"array\",\"items\":\"string\"}},"
+          + "{\"name\":\"payload\",\"type\":{\"type\":\"record\",\"name\":\"payload\",\"fields\":["
+          + "{\"name\":\"key\",\"type\":[\"null\",\"string\"]},"
+          + "{\"name\":\"id\",\"type\":[\"null\",\"string\"]},"
+          + "{\"name\":\"rev\",\"type\":[\"null\",\"string\"]},"
+          + "{\"name\":\"doc\",\"type\":[\"null\",{\"type\":\"string\",\"logicalType\":\"json\"}]}"
+          + "]}}]}";
+
+  private static void assertBulkSchema(String json, StructType struct) {
     Schema s = new Schema.Parser().parse(json);
-    assertThat(s.getName()).isEqualTo(recordName);
-    assertThat(s.getNamespace()).isEqualTo("com.google.cloud.teleport.v2.tools.arangodb");
-    List<Schema.Field> fields = s.getFields();
+    assertThat(s.toString()).isEqualTo(json);
+    assertThat(s.getName()).isEqualTo("SourceRowWithMetadata");
+    assertThat(s.getField("tableName").schema().getType()).isEqualTo(Schema.Type.STRING);
+    assertThat(s.getField("shardId").schema().getTypes().get(1).getType())
+        .isEqualTo(Schema.Type.NULL);
+    assertThat(s.getField("primaryKeys").schema().getType()).isEqualTo(Schema.Type.ARRAY);
+    List<Schema.Field> fields = s.getField("payload").schema().getFields();
     assertThat(fields).hasSize(struct.fields().length);
     for (int i = 0; i < fields.size(); i++) {
       Schema.Field f = fields.get(i);
-      StructField sf = struct.fields()[i];
-      assertThat(f.name()).isEqualTo(sf.name());
-      if (sf.nullable()) {
-        assertThat(f.schema().getType()).isEqualTo(Schema.Type.UNION);
-        assertThat(f.schema().getTypes().get(0).getType()).isEqualTo(Schema.Type.NULL);
-        assertThat(f.schema().getTypes().get(1).getType()).isEqualTo(Schema.Type.STRING);
-      } else {
-        assertThat(f.schema().getType()).isEqualTo(Schema.Type.STRING);
-      }
+      assertThat(f.name()).isEqualTo(struct.fields()[i].name());
+      assertThat(f.schema().getType()).isEqualTo(Schema.Type.UNION);
+      assertThat(f.schema().getTypes().get(0).getType()).isEqualTo(Schema.Type.NULL);
+      Schema value = f.schema().getTypes().get(1);
+      assertThat(value.getType()).isEqualTo(Schema.Type.STRING);
+      assertThat(value.getProp("logicalType")).isEqualTo(f.name().equals("doc") ? "json" : null);
     }
   }
 
   @Test
-  public void avroSchemasParseAndMatchStructs() {
-    assertAvroMatchesStruct(
-        CollectionPlan.documentAvroSchema(), CollectionPlan.documentStruct(), "ArangoDocumentRow");
-    assertAvroMatchesStruct(
-        CollectionPlan.edgeAvroSchema(), CollectionPlan.edgeStruct(), "ArangoEdgeRow");
+  public void bulkSchemasAreTheGoldenResources() {
+    assertThat(CollectionPlan.documentAvroSchema()).isEqualTo(DOCUMENT_SCHEMA_TEXT);
+    assertThat(CollectionPlan.edgeAvroSchema())
+        .isEqualTo(
+            DOCUMENT_SCHEMA_TEXT.replace(
+                "{\"name\":\"doc\"",
+                "{\"name\":\"from_id\",\"type\":[\"null\",\"string\"]},"
+                    + "{\"name\":\"to_id\",\"type\":[\"null\",\"string\"]},"
+                    + "{\"name\":\"doc\""));
+    assertBulkSchema(CollectionPlan.documentAvroSchema(), CollectionPlan.documentStruct());
+    assertBulkSchema(CollectionPlan.edgeAvroSchema(), CollectionPlan.edgeStruct());
+  }
+
+  @Test
+  public void schemaMd5NamesTheFiles() {
+    CollectionPlan doc =
+        CollectionPlan.create(new CollectionInfo("users", CollectionKind.DOCUMENT), "users", 1);
+    CollectionPlan edge =
+        CollectionPlan.create(new CollectionInfo("knows", CollectionKind.EDGE), "knows", 1);
+    assertThat(doc.avroSchemaMd5()).isEqualTo("b36539a80425c7f2c6178856a7bb935f");
+    assertThat(edge.avroSchemaMd5()).isEqualTo("a7f80905c6bc6e9912edef8c18d80a52");
+    assertThat(CollectionPlan.md5Hex("")).isEqualTo("d41d8cd98f00b204e9800998ecf8427e");
   }
 
   @Test
@@ -99,6 +129,7 @@ public class CollectionPlanTest {
     assertThat(p.sourceName()).isEqualTo("knows");
     assertThat(p.structType()).isEqualTo(CollectionPlan.edgeStruct());
     assertThat(p.avroSchemaJson()).isEqualTo(CollectionPlan.edgeAvroSchema());
+    assertThat(p.avroSchemaMd5()).isEqualTo(CollectionPlan.md5Hex(CollectionPlan.edgeAvroSchema()));
     assertThat(p.columns()).hasSize(6);
     assertThat(p.columns().get(3).name).isEqualTo("from_id");
     assertThat(p.columns().get(5).type).isEqualTo("JSON");

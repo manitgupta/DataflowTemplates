@@ -27,7 +27,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
-import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -62,14 +61,17 @@ public class ExportReadbackTest {
     }
   }
 
-  private static void writeAvro(List<Row> rows, String dir) {
-    Dataset<Row> df = spark.createDataFrame(rows, CollectionPlan.documentStruct()).coalesce(1);
-    df.write()
-        .format("avro")
-        .option("avroSchema", CollectionPlan.documentAvroSchema())
-        .option("compression", "snappy")
-        .mode(SaveMode.ErrorIfExists)
-        .save(dir);
+  private static final CollectionPlan USERS =
+      CollectionPlan.create(
+          new CollectionInfo("user-profiles", CollectionKind.DOCUMENT), "user_profiles", 1);
+
+  private static final ExporterOptions OPTS =
+      ExporterOptions.parse(new String[] {"--endpoints=h:1", "--output=/tmp/unused"});
+
+  /** Writes rows through the exporter's own record mapping and Avro writer into staging. */
+  static void writeBatch(SparkSession spark, CollectionPlan plan, List<Row> rows, String dir) {
+    Dataset<Row> df = spark.createDataFrame(rows, plan.structType()).coalesce(1);
+    CollectionExporter.writeAvro(plan.toBulkRecords(df), plan, OPTS, dir);
   }
 
   @Test
@@ -77,32 +79,41 @@ public class ExportReadbackTest {
     File rootDir = tmp.newFolder("export root"); // space: exercises URL decoding
     // Hadoop URIs are not percent-decoded, so pass the raw path (with its space).
     String root = "file://" + rootDir.getAbsolutePath();
-    String tableDir = root + "/tables/user_profiles";
+    String tableDir = CollectionExporter.tableDir(root, USERS);
+    String stagingDir = CollectionExporter.stagingDir(root, USERS);
     String unicodeDoc = "{\"_key\":\"k3\",\"e\":\"😀é\"}";
-    writeAvro(
+    writeBatch(
+        spark,
+        USERS,
         Arrays.asList(
             RowFactory.create("k1", "c/k1", "_r1", "{\"_key\":\"k1\"}"),
             RowFactory.create("k2", null, null, "{\"_key\":\"k2\",\"n\":1}")),
-        CollectionExporter.batchDir(tableDir, 0));
-    writeAvro(
+        CollectionExporter.batchDir(stagingDir, 0));
+    writeBatch(
+        spark,
+        USERS,
         Collections.singletonList(RowFactory.create("k3", "c/k3", "_r3", unicodeDoc)),
-        CollectionExporter.batchDir(tableDir, 1));
+        CollectionExporter.batchDir(stagingDir, 1));
+    CollectionExporter.commit(
+        stagingDir, tableDir, USERS, spark.sparkContext().hadoopConfiguration());
 
     ExportReadback.Result r = ExportReadback.read(spark, tableDir, root);
 
     assertThat(r.rowCount).isEqualTo(3);
     assertThat(r.files).hasSize(2);
     long sum = 0;
-    for (ExportManifest.FileEntry f : r.files) {
-      assertThat(f.path).startsWith("tables/user_profiles/b0000");
-      assertThat(f.path).endsWith(".avro");
+    for (ExportSummary.FileEntry f : r.files) {
+      assertThat(f.path)
+          .matches("user_profiles/" + USERS.avroSchemaMd5() + "-0000[01]-of-00002.avro");
       assertWithMessage(f.path).that(new File(rootDir, f.path).isFile()).isTrue();
       sum += f.rows;
     }
     assertThat(sum).isEqualTo(3);
-    assertThat(r.files.get(0).path).startsWith("tables/user_profiles/b00000/part-");
+    assertThat(r.files.get(0).path)
+        .isEqualTo("user_profiles/b36539a80425c7f2c6178856a7bb935f-00000-of-00002.avro");
     assertThat(r.files.get(0).rows).isEqualTo(2);
-    assertThat(r.files.get(1).path).startsWith("tables/user_profiles/b00001/part-");
+    assertThat(r.files.get(1).path)
+        .isEqualTo("user_profiles/b36539a80425c7f2c6178856a7bb935f-00001-of-00002.avro");
     assertThat(r.files.get(1).rows).isEqualTo(1);
     int unicodeBytes = unicodeDoc.getBytes(StandardCharsets.UTF_8).length;
     assertThat(unicodeBytes).isGreaterThan(unicodeDoc.length());
@@ -113,17 +124,24 @@ public class ExportReadbackTest {
   @Test
   public void listsOversizedKeys() throws Exception {
     String root = tmp.newFolder("big").toURI().toString().replaceAll("/$", "");
-    String tableDir = root + "/tables/t";
+    CollectionPlan plan =
+        CollectionPlan.create(new CollectionInfo("t", CollectionKind.DOCUMENT), "t", 1);
+    String tableDir = CollectionExporter.tableDir(root, plan);
+    String stagingDir = CollectionExporter.stagingDir(root, plan);
     StringBuilder sb = new StringBuilder("{\"x\":\"");
     while (sb.length() < ExportReadback.OVERSIZED_DOC_BYTES + 10) {
       sb.append("0123456789012345678901234567890123456789");
     }
     sb.append("\"}");
-    writeAvro(
+    writeBatch(
+        spark,
+        plan,
         Arrays.asList(
             RowFactory.create("big", null, null, sb.toString()),
             RowFactory.create("small", null, null, "{}")),
-        CollectionExporter.batchDir(tableDir, 0));
+        CollectionExporter.batchDir(stagingDir, 0));
+    CollectionExporter.commit(
+        stagingDir, tableDir, plan, spark.sparkContext().hadoopConfiguration());
     ExportReadback.Result r = ExportReadback.read(spark, tableDir, root);
     assertThat(r.rowCount).isEqualTo(2);
     assertThat(r.maxDocBytes).isEqualTo(sb.length());
@@ -133,7 +151,7 @@ public class ExportReadbackTest {
   @Test
   public void missingDirectoryIsEmpty() throws Exception {
     String root = tmp.newFolder("empty").toURI().toString();
-    ExportReadback.Result r = ExportReadback.read(spark, root + "tables/none", root);
+    ExportReadback.Result r = ExportReadback.read(spark, root + "none", root);
     assertThat(r.rowCount).isEqualTo(0);
     assertThat(r.files).isEmpty();
   }
@@ -141,8 +159,8 @@ public class ExportReadbackTest {
   @Test
   public void relativizeRejectsOutsideFiles() {
     Path root = new Path("gs://b/exports/e1");
-    assertThat(ExportReadback.relativize(root, new Path("gs://b/exports/e1/tables/t/p.avro")))
-        .isEqualTo("tables/t/p.avro");
+    assertThat(ExportReadback.relativize(root, new Path("gs://b/exports/e1/t/p.avro")))
+        .isEqualTo("t/p.avro");
     try {
       ExportReadback.relativize(root, new Path("gs://b/other/p.avro"));
       throw new AssertionError("expected IllegalStateException");

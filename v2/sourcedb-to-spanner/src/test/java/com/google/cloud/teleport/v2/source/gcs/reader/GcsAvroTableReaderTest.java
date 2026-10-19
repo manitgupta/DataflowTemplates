@@ -16,17 +16,13 @@
 package com.google.cloud.teleport.v2.source.gcs.reader;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.assertThrows;
 
 import com.google.cloud.teleport.v2.reader.io.row.SourceRow;
 import com.google.cloud.teleport.v2.reader.io.schema.SourceTableSchema;
 import com.google.cloud.teleport.v2.source.gcs.GcsTestFixtures;
-import java.io.File;
 import java.util.List;
-import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.metrics.MetricNameFilter;
-import org.apache.beam.sdk.metrics.MetricQueryResults;
 import org.apache.beam.sdk.metrics.MetricResult;
 import org.apache.beam.sdk.metrics.MetricsFilter;
 import org.apache.beam.sdk.testing.PAssert;
@@ -51,112 +47,81 @@ public class GcsAvroTableReaderTest {
   @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
   private SourceTableSchema schema;
-  private String file1;
-  private String file2;
+  private String root;
 
   @Before
   public void setUp() throws Exception {
-    schema =
-        GcsAvroRecordToSourceRowFnTest.tableSchema(
-            "user_profiles", GcsAvroRecordToSourceRowFnTest.DOC_COLUMNS);
-    file1 =
-        GcsTestFixtures.writeAvro(
-                new File(tmp.getRoot(), "tables/user_profiles/part-0.avro"),
-                GcsTestFixtures.DOCUMENT_SCHEMA,
-                List.of(GcsTestFixtures.document("u1", "{}"), GcsTestFixtures.document("u2", "[]")))
-            .getAbsolutePath();
-    file2 =
-        GcsTestFixtures.writeAvro(
-                new File(tmp.getRoot(), "tables/user_profiles/part-1.avro"),
-                GcsTestFixtures.DOCUMENT_SCHEMA,
-                List.of(GcsTestFixtures.document("u3", "{\"a\":1}")))
-            .getAbsolutePath();
+    schema = GcsTestFixtures.documentTable("user_profiles");
+    root = tmp.getRoot().getAbsolutePath();
+    GcsTestFixtures.writeBulkFile(
+        tmp.getRoot(),
+        "shard1",
+        0,
+        2,
+        List.of(
+            GcsTestFixtures.document(schema, "u1", "{}"),
+            GcsTestFixtures.document(schema, "u2", "[]")));
+    GcsTestFixtures.writeBulkFile(
+        tmp.getRoot(), null, 1, 2, List.of(GcsTestFixtures.document(schema, "u3", "{\"a\":1}")));
+    // Another table under the same root, not read.
+    GcsTestFixtures.writeBulkFile(
+        tmp.getRoot(),
+        null,
+        0,
+        1,
+        List.of(GcsTestFixtures.document(GcsTestFixtures.documentTable("other"), "o1", "{}")));
   }
 
-  private GcsAvroTableReader reader(
-      List<String> files, Long expectedRowCount, Wait.OnSignal<?> signal) {
-    return new GcsAvroTableReader(
-        files,
-        GcsAvroRecordToSourceRowFnTest.REF,
-        schema,
-        GcsAvroRecordToSourceRowFnTest.DOC_COLUMNS,
-        99L,
-        expectedRowCount,
-        signal);
+  private GcsAvroTableReader reader(Wait.OnSignal<?> signal) {
+    return new GcsAvroTableReader(root, "user_profiles", GcsTestFixtures.REF, schema, 99L, signal);
   }
 
   private static PCollection<String> keys(PCollection<SourceRow> rows) {
     return rows.apply(
         "Keys",
         MapElements.into(TypeDescriptors.strings())
-            .via((SourceRow r) -> r.getPayload().get("key").toString()));
+            .via(
+                (SourceRow r) ->
+                    r.getPayload().get("key") + "@" + r.shardId() + "@" + r.getReadTimeMicros()));
   }
 
-  private static long mismatchCounter(PipelineResult result, String table) {
-    MetricQueryResults metrics =
+  @Test
+  public void testReadsAllFilesOfTheTable() {
+    PCollection<SourceRow> rows = pipeline.apply(reader(null));
+    PAssert.that(keys(rows)).containsInAnyOrder("u1@shard1@99", "u2@shard1@99", "u3@null@99");
+    PipelineResult result = pipeline.run();
+    result.waitUntilFinish();
+    long read = 0;
+    for (MetricResult<Long> counter :
         result
             .metrics()
             .queryMetrics(
                 MetricsFilter.builder()
                     .addNameFilter(
                         MetricNameFilter.named(
-                            GcsAvroTableReader.class,
-                            ExpectedRowCountCheckFn.MISMATCH_COUNTER_PREFIX + table))
-                    .build());
-    long total = 0;
-    for (MetricResult<Long> counter : metrics.getCounters()) {
-      total += counter.getAttempted();
+                            GcsAvroRecordToSourceRowFn.class,
+                            GcsAvroRecordToSourceRowFn.ROWS_READ_COUNTER_PREFIX + "user_profiles"))
+                    .build())
+            .getCounters()) {
+      read += counter.getAttempted();
     }
-    return total;
-  }
-
-  @Test
-  public void testReadsAllFiles() {
-    PCollection<SourceRow> rows = pipeline.apply(reader(List.of(file1, file2), 3L, null));
-    PAssert.that(keys(rows)).containsInAnyOrder("u1", "u2", "u3");
-    PipelineResult result = pipeline.run();
-    result.waitUntilFinish();
-    assertThat(mismatchCounter(result, "user_profiles")).isEqualTo(0L);
+    assertThat(read).isEqualTo(3L);
   }
 
   @Test
   public void testWaitOnSignal() {
     Wait.OnSignal<?> signal = Wait.on(pipeline.apply("Signal", Create.of(1)));
-    PCollection<SourceRow> rows = pipeline.apply(reader(List.of(file1, file2), null, signal));
-    PAssert.that(keys(rows)).containsInAnyOrder("u1", "u2", "u3");
+    PCollection<SourceRow> rows = pipeline.apply(reader(signal));
+    PAssert.that(keys(rows)).containsInAnyOrder("u1@shard1@99", "u2@shard1@99", "u3@null@99");
     pipeline.run().waitUntilFinish();
   }
 
   @Test
-  public void testGlobPattern() {
-    String glob = new File(tmp.getRoot(), "tables/user_profiles/*.avro").getAbsolutePath();
-    PCollection<SourceRow> rows = pipeline.apply(reader(List.of(glob), null, null));
-    PAssert.that(keys(rows)).containsInAnyOrder("u1", "u2", "u3");
-    pipeline.run().waitUntilFinish();
-  }
-
-  @Test
-  public void testMissingListedFileFails() {
-    String missing = new File(tmp.getRoot(), "tables/user_profiles/gone.avro").getAbsolutePath();
-    pipeline.apply(reader(List.of(file1, missing), null, null));
-    assertThrows(Pipeline.PipelineExecutionException.class, () -> pipeline.run());
-  }
-
-  @Test
-  public void testRowCountMismatchIncrementsCounter() {
-    PCollection<SourceRow> rows = pipeline.apply(reader(List.of(file1, file2), 5L, null));
-    PAssert.that(keys(rows)).containsInAnyOrder("u1", "u2", "u3");
-    PipelineResult result = pipeline.run();
-    result.waitUntilFinish();
-    assertThat(mismatchCounter(result, "user_profiles")).isEqualTo(1L);
-  }
-
-  @Test
-  public void testEmptyFileList() {
-    PCollection<SourceRow> rows = pipeline.apply(reader(List.of(), 0L, null));
+  public void testMissingTableReadsNothing() {
+    PCollection<SourceRow> rows =
+        pipeline.apply(
+            new GcsAvroTableReader(root, "gone", GcsTestFixtures.REF, schema, 99L, null));
     PAssert.that(rows).empty();
-    PipelineResult result = pipeline.run();
-    result.waitUntilFinish();
-    assertThat(mismatchCounter(result, "user_profiles")).isEqualTo(0L);
+    pipeline.run().waitUntilFinish();
   }
 }

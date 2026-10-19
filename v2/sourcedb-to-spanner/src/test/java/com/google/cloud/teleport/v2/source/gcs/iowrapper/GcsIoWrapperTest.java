@@ -26,6 +26,7 @@ import com.google.cloud.teleport.v2.source.gcs.GcsTestFixtures;
 import com.google.cloud.teleport.v2.source.gcs.reader.GcsAvroTableReader;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,8 +48,9 @@ public class GcsIoWrapperTest {
 
   @Test
   public void testReadersAndSchema() throws Exception {
-    String manifest = GcsTestFixtures.writeExport(tmp.getRoot(), true, 3L);
-    GcsIoWrapper wrapper = new GcsIoWrapper(manifest, List.of(), null);
+    File root = tmp.newFolder("20261017T100000Z");
+    GcsTestFixtures.writeExport(root);
+    GcsIoWrapper wrapper = new GcsIoWrapper(root.getAbsolutePath() + "/", List.of(), null);
 
     ImmutableMap<ImmutableList<SourceTableReference>, PTransform<PBegin, PCollection<SourceRow>>>
         readers = wrapper.getTableReaders();
@@ -63,7 +65,14 @@ public class GcsIoWrapperTest {
         schema.tableSchemas().stream()
             .collect(Collectors.toMap(SourceTableSchema::tableName, s -> s));
     assertThat(byName.keySet()).containsExactly("user_profiles", "knows");
-    assertThat(byName.get("knows").sourceColumnNameToSourceColumnType()).hasSize(6);
+    SourceTableSchema knows = byName.get("knows");
+    assertThat(knows.sourceColumnNameToSourceColumnType().keySet())
+        .containsExactly("key", "id", "rev", "from_id", "to_id", "doc")
+        .inOrder();
+    assertThat(knows.sourceColumnNameToSourceColumnType().get("doc").getName()).isEqualTo("JSON");
+    assertThat(knows.primaryKeyColumns()).containsExactly("key");
+    assertThat(knows.getAvroPayload())
+        .isEqualTo(GcsTestFixtures.edgeTable("knows").getAvroPayload());
 
     for (Map.Entry<ImmutableList<SourceTableReference>, PTransform<PBegin, PCollection<SourceRow>>>
         e : readers.entrySet()) {
@@ -79,8 +88,8 @@ public class GcsIoWrapperTest {
 
   @Test
   public void testRequestedTablesOnly() throws Exception {
-    String manifest = GcsTestFixtures.writeExport(tmp.getRoot(), true, null);
-    GcsIoWrapper wrapper = new GcsIoWrapper(manifest, List.of("USER_PROFILES"), null);
+    String root = GcsTestFixtures.writeExport(tmp.getRoot());
+    GcsIoWrapper wrapper = new GcsIoWrapper(root, List.of("USER_PROFILES"), null);
     assertThat(wrapper.getTableReaders()).hasSize(1);
     assertThat(wrapper.getTableReaders().keySet().iterator().next().get(0).sourceTableName())
         .isEqualTo("USER_PROFILES");
@@ -88,9 +97,22 @@ public class GcsIoWrapperTest {
 
   @Test
   public void testUnknownTablesOnlyGivesEmptyReaders() throws Exception {
-    String manifest = GcsTestFixtures.writeExport(tmp.getRoot(), false, null);
-    GcsIoWrapper wrapper = new GcsIoWrapper(manifest, List.of("nope"), null);
+    String root = GcsTestFixtures.writeExport(tmp.getRoot());
+    GcsIoWrapper wrapper = new GcsIoWrapper(root, List.of("nope"), null);
     assertThat(wrapper.getTableReaders()).isEmpty();
     assertThat(wrapper.discoverTableSchema().get(0).tableSchemas()).isEmpty();
+  }
+
+  @Test
+  public void testEmptyExport() {
+    GcsIoWrapper wrapper = new GcsIoWrapper(tmp.getRoot().getAbsolutePath(), List.of(), null);
+    assertThat(wrapper.getTableReaders()).isEmpty();
+  }
+
+  @Test
+  public void testExportId() {
+    assertThat(GcsIoWrapper.exportId("gs://b/exports/run1")).isEqualTo("run1");
+    assertThat(GcsIoWrapper.exportId("gs://b/exports/run1/")).isEqualTo("run1");
+    assertThat(GcsIoWrapper.exportId("run1")).isEqualTo("run1");
   }
 }

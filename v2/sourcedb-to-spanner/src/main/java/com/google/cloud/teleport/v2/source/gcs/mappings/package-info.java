@@ -14,5 +14,5 @@
  * the License.
  */
 
-/** Type mappings and value conversion for the GCS file export source. */
+/** Type mappings and value conversion for the GCS Avro export source. */
 package com.google.cloud.teleport.v2.source.gcs.mappings;

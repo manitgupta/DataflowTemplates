@@ -390,9 +390,8 @@ public class SourceConfigParserTest {
 
   @Test
   public void testParseConfiguration_Gcs_Success() throws Exception {
-    SourceConnectionConfig config =
-        parser.parseConfiguration("gcs", "gs://bucket/export/manifest.json");
-    assertEquals(new GcsSourceConfig("gs://bucket/export/manifest.json"), config);
+    SourceConnectionConfig config = parser.parseConfiguration("gcs", "gs://bucket/export");
+    assertEquals(new GcsSourceConfig("gs://bucket/export"), config);
     verifyNoInteractions(mockSecretManagerAccessor);
   }
 
@@ -400,7 +399,7 @@ public class SourceConfigParserTest {
   public void testParseConfiguration_Gcs_UpperCaseAndDirectory() throws Exception {
     SourceConnectionConfig config =
         parser.parseConfiguration("GCS", "gs://bucket/export/", /* resolveSecrets= */ false);
-    assertEquals("gs://bucket/export/manifest.json", ((GcsSourceConfig) config).getManifestPath());
+    assertEquals("gs://bucket/export", ((GcsSourceConfig) config).getRootPath());
   }
 
   @Test

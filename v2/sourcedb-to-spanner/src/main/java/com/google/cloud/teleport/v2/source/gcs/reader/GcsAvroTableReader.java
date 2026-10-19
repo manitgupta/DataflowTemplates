@@ -18,102 +18,66 @@ package com.google.cloud.teleport.v2.source.gcs.reader;
 import com.google.cloud.teleport.v2.reader.io.row.SourceRow;
 import com.google.cloud.teleport.v2.reader.io.schema.SourceSchemaReference;
 import com.google.cloud.teleport.v2.reader.io.schema.SourceTableSchema;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.cloud.teleport.v2.spanner.migrations.gcs.BulkGcsAvroReader;
 import java.util.List;
 import javax.annotation.Nullable;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.extensions.avro.io.AvroIO;
-import org.apache.beam.sdk.io.FileIO;
-import org.apache.beam.sdk.io.fs.EmptyMatchTreatment;
-import org.apache.beam.sdk.transforms.Count;
-import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.Reshuffle;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.TypeDescriptor;
 
 /**
- * Reads the Avro files of one table of a GCS export into {@link SourceRow}s. Every listed file (or
- * the file pattern) must match at least one file, otherwise the pipeline fails.
+ * Reads the Avro files of one table of a bulk migration Avro export ({@code
+ * root/<tableName>/**.avro}) with the shared {@link BulkGcsAvroReader} and converts the records
+ * into {@link SourceRow}s.
  */
 public final class GcsAvroTableReader extends PTransform<PBegin, PCollection<SourceRow>> {
 
-  private final ImmutableList<String> filePatterns;
+  private final String root;
+  private final String exportTable;
   private final SourceSchemaReference ref;
   private final SourceTableSchema tableSchema;
-  private final ImmutableMap<String, String> columnTypes;
   private final long readTimeMicros;
-  @Nullable private final Long expectedRowCount;
   @Nullable private final Wait.OnSignal<?> waitOnSignal;
 
   /**
    * Creates the reader.
    *
-   * @param filePatterns resolved file URIs (or globs) of the table.
+   * @param root root directory of the export.
+   * @param exportTable name of the table's directory under {@code root}.
    * @param ref schema reference of the export.
    * @param tableSchema schema of the table.
-   * @param columnTypes column name to manifest type, in manifest order.
    * @param readTimeMicros read timestamp of every row.
-   * @param expectedRowCount manifest row count; enables the row count check when non-null.
    * @param waitOnSignal signal to wait on before reading, may be null.
    */
   public GcsAvroTableReader(
-      List<String> filePatterns,
+      String root,
+      String exportTable,
       SourceSchemaReference ref,
       SourceTableSchema tableSchema,
-      ImmutableMap<String, String> columnTypes,
       long readTimeMicros,
-      @Nullable Long expectedRowCount,
       @Nullable Wait.OnSignal<?> waitOnSignal) {
-    this.filePatterns = ImmutableList.copyOf(filePatterns);
+    this.root = root;
+    this.exportTable = exportTable;
     this.ref = ref;
     this.tableSchema = tableSchema;
-    this.columnTypes = columnTypes;
     this.readTimeMicros = readTimeMicros;
-    this.expectedRowCount = expectedRowCount;
     this.waitOnSignal = waitOnSignal;
   }
 
   @Override
   public PCollection<SourceRow> expand(PBegin input) {
-    PCollection<String> seed =
-        input.apply("CreateFilePatterns", Create.of(filePatterns).withCoder(StringUtf8Coder.of()));
-    if (waitOnSignal != null) {
-      seed = waitOn(seed, waitOnSignal);
-    }
-    // Create.of is a single bundle: spread the (possibly thousands of) file specs over workers so
-    // that their GCS metadata lookups in MatchFiles run in parallel instead of one after another.
-    PCollection<SourceRow> rows =
-        seed.apply("SpreadFilePatterns", Reshuffle.viaRandomKey())
-            .apply(
-                "MatchFiles",
-                FileIO.matchAll().withEmptyMatchTreatment(EmptyMatchTreatment.DISALLOW))
-            .apply(
-                "ReadMatches",
-                FileIO.readMatches()
-                    .withDirectoryTreatment(FileIO.ReadMatches.DirectoryTreatment.PROHIBIT))
-            .apply(
-                "ParseToSourceRow",
-                AvroIO.parseFilesGenericRecords(
-                        new GcsAvroRecordToSourceRowFn(
-                            ref, tableSchema, columnTypes, readTimeMicros))
-                    .withCoder(SourceRowCoders.forPipeline(input.getPipeline())));
-    if (expectedRowCount != null) {
-      rows.apply("CountRows", Count.globally())
-          .apply(
-              "CheckRowCount",
-              ParDo.of(new ExpectedRowCountCheckFn(tableSchema.tableName(), expectedRowCount)));
-    }
-    return rows;
-  }
-
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  private static PCollection<String> waitOn(PCollection<String> seed, Wait.OnSignal<?> signal) {
-    // Wait.OnSignal is typed on the signal's element type; it passes any element type through.
-    return (PCollection<String>)
-        ((PCollection) seed).apply("WaitOnPreviousLevel", (PTransform) signal);
+    return input
+        .apply(
+            "ReadAvroRecords",
+            BulkGcsAvroReader.of(root, List.of(exportTable), List.of())
+                .withWaitOnSignal(waitOnSignal))
+        .apply(
+            "ToSourceRow",
+            MapElements.into(TypeDescriptor.of(SourceRow.class))
+                .via(new GcsAvroRecordToSourceRowFn(ref, tableSchema, readTimeMicros)))
+        .setCoder(SourceRowCoders.forPipeline(input.getPipeline()));
   }
 }

@@ -14,5 +14,8 @@
  * the License.
  */
 
-/** Model and validation of the {@code manifest.json} describing a GCS file export. */
-package com.google.cloud.teleport.v2.source.gcs.manifest;
+/**
+ * The Avro file layout written by the bulk migration template's {@code gcsOutputDirectory} sink,
+ * and a shared Beam reader for it.
+ */
+package com.google.cloud.teleport.v2.spanner.migrations.gcs;

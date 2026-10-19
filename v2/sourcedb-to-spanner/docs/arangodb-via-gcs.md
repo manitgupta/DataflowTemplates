@@ -6,14 +6,17 @@ Spanner Omni deployment. It runs in two independent stages:
 1. **Export.** The ArangoDB Spark exporter
    ([`tools/arangodb-gcs-exporter`](../tools/arangodb-gcs-exporter)) runs on Spark,
    for example Dataproc. It reads every collection through the ArangoDB Spark connector
-   and writes Avro files, two Spanner DDL files and a `manifest.json` to GCS, or to any
-   Hadoop filesystem.
+   and writes Avro files, two Spanner DDL files and an `arangodb-export.json` summary to
+   GCS, or to any Hadoop filesystem. The Avro files are in exactly the format the template
+   itself writes with `gcsOutputDirectory` (the "bulk migration Avro format").
 2. **Import.** The `Sourcedb_to_Spanner_Flex` template runs on Dataflow, or on any Beam
-   runner, with `sourceDbDialect=GCS`. It reads exactly the files listed in the manifest
-   and writes them to Spanner.
+   runner, with `sourceDbDialect=GCS` and `sourceConfigURL` set to the export directory.
+   It reads every table directory under it and writes the rows to Spanner.
 
-The template side doesn't depend on ArangoDB. Any producer that writes the same manifest
-and Avro layout can use the `GCS` dialect.
+The template side doesn't depend on ArangoDB. Any directory in the bulk migration Avro
+format can be imported with the `GCS` dialect, including the `gcsOutputDirectory` output
+of an earlier `Sourcedb_to_Spanner_Flex` run (for example a MySQL migration), and the same
+files can be validated with the `Avro_to_Spanner_Data_Validator` template (`v2/gcs-spanner-dv`).
 
 > **ArangoDB version and licensing.** The exporter is developed and tested against
 > ArangoDB **3.11** (3.11.14). Do **not** use ArangoDB 3.12+ binaries or images, including
@@ -36,23 +39,40 @@ lowercase.
 - `key` is `_key` and is the primary key, for edges too.
 - Table names are the sanitised collection names: lowercase, `[^a-z0-9_]` replaced with
   `_`, a `t_` prefix when the name doesn't start with a letter, and at most 128
-  characters. The export fails if two names collide. The original name is kept in the
-  manifest as `sourceName`.
+  characters. The export fails if two names collide. The original name is kept in
+  `arangodb-export.json` as `sourceName`.
 
 The export is laid out as follows:
 
 ```
 <output>/<exportId>/
-  manifest.json                 written LAST; if it exists, the export is complete
+  <table>/<md5Hex(schema)>-NNNNN-of-MMMMM.avro   bulk migration Avro format
   spanner-ddl-googlesql.sql
   spanner-ddl-postgresql.sql
-  tables/<table>/b<batch>/part-*.avro
+  arangodb-export.json          summary (source info, per-table row counts and files),
+                                written LAST; if it exists, the export is complete
 ```
 
-The manifest lists every data file and its row count. See
-[the sample](../src/test/resources/SourceConfig/gcs-manifest.json). The template reads
-those files and nothing else, so stray files in the bucket are ignored. A listed file
-that is missing fails the job.
+Every record has the schema the template's own sink uses (`SourceRowWithMetadata`), here
+for a document collection:
+
+```
+{tableName: string, shardId: ["string","null"], primaryKeys: array<string>,
+ payload: record "payload" {key, id, rev: ["null","string"],
+                            doc: ["null",{"type":"string","logicalType":"json"}]}}
+```
+
+with `tableName` = the table name, `shardId` = null and `primaryKeys` = `["key"]`. Edge
+collections add `from_id` and `to_id` before `doc`. The exact schema texts are
+`tools/arangodb-gcs-exporter/src/main/resources/avro/arangodb-{document,edge}.avsc`; a
+unit test of the template checks that they equal the template's own sink schema.
+
+The template treats every first-level directory of the export that contains `*.avro`
+files (at any depth, so `<table>/<shardId>/*.avro` works too) as a table. Other files,
+such as `arangodb-export.json` and the DDL files, are ignored. The payload schema and the
+primary key of a table come from the header and first record of its files; files of one
+table must all have the same payload schema. A table whose files are all empty is read
+as an empty table.
 
 ## 2. Partitioning: RANGE (default) and HASH
 
@@ -102,14 +122,14 @@ small collections. Auto mode caps it at 64 partitions.
 
 **Correctness backstops (both modes).**
 
-- The exporter reads the written files back and counts rows. The export fails unless that
+- The exporter counts the records of the final Avro files. The export fails unless that
   count equals the collection count taken before the export.
 - It records each collection's count and revision before and after the export. If either
   changed, it fails (exit code 2), unless you pass `--allowLiveSource=true`. In that case
-  it writes `consistent=false` to the manifest, and the template logs a warning.
-- The template counts the rows it reads for each table and compares the count with
-  `rowCount` from the manifest. A mismatch logs an ERROR and increments the counter
-  `gcs_source_rowcount_mismatch_<table>`.
+  it writes `consistent=false` to `arangodb-export.json`.
+- The template counts the rows it reads for each table (counter
+  `gcs_source_rows_read_<table>`); compare it with the table's `rowCount` in
+  `arangodb-export.json`, or run the end-to-end validator (§6).
 
 ## 3. Running the exporter
 
@@ -194,8 +214,8 @@ Main options:
 
 ## 4. Creating the Spanner schema
 
-The exporter writes `spanner-ddl-googlesql.sql` and `spanner-ddl-postgresql.sql` next to
-the manifest:
+The exporter writes `spanner-ddl-googlesql.sql` and `spanner-ddl-postgresql.sql` into
+the export directory:
 
 - `doc` is `JSON` (or `jsonb`);
 - `key` is `STRING(254)` and is the primary key;
@@ -250,17 +270,16 @@ gcloud dataflow flex-template run "arangodb-shop-$(date +%Y%m%d-%H%M%S)" \
   --project=$PROJECT --region=$REGION \
   --template-file-gcs-location=$TEMPLATE_SPEC \
   --parameters sourceDbDialect=GCS \
-  --parameters sourceConfigURL=gs://$BUCKET/exports/shop/run1/manifest.json \
+  --parameters sourceConfigURL=gs://$BUCKET/exports/shop/run1 \
   --parameters projectId=$PROJECT,instanceId=$INSTANCE,databaseId=shop \
   --parameters outputDirectory=gs://$BUCKET/migration/shop/
 ```
 
-- `sourceConfigURL` can also be the export directory with a trailing slash
-  (`gs://$BUCKET/exports/shop/run1/`). `manifest.json` is then appended.
+- `sourceConfigURL` is the root directory of the export; a trailing slash is optional.
 - `tables` restricts the import to some of the tables. Names are matched against the
-  manifest without regard to case.
-- Every manifest table must have a matching Spanner table. A manifest table that would
-  not be migrated is logged and fails the launch, unless you restricted the import with
+  table directories without regard to case.
+- Every table of the export must have a matching Spanner table. A table that would not be
+  migrated is logged and fails the launch, unless you restricted the import with
   `tables`, in which case it is only logged. Session files, schema-overrides files and
   table/column overrides still work for renames.
 - Rows that Spanner rejects, such as oversized documents or invalid JSON, go to
@@ -271,12 +290,12 @@ gcloud dataflow flex-template run "arangodb-shop-$(date +%Y%m%d-%H%M%S)" \
 - The source has no JDBC settings, so `numPartitions`, `fetchSize`, `maxConnections`,
   `jdbcDriver*` and `uniformizationStageCountHint` are ignored. Parallelism comes from the
   number of Avro files and their size.
-- The read timestamp of every row is the manifest's `source.exportStartedAt`.
+- The read timestamp of every row is the launch time of the template.
+- The shard id of every row is the record's `shardId` (null for ArangoDB exports).
 
 Useful metrics:
 
 - `gcs_source_rows_read_<table>`;
-- `gcs_source_rowcount_mismatch_<table>`, which should be absent or 0;
 - the usual Spanner write and DLQ counters.
 
 ## 6. Running the template against Spanner Omni
@@ -293,7 +312,7 @@ gcloud dataflow flex-template run "arangodb-shop-omni-$(date +%Y%m%d-%H%M%S)" \
   --project=$PROJECT --region=$REGION --subnetwork=$SUBNET \
   --template-file-gcs-location=$TEMPLATE_SPEC \
   --parameters sourceDbDialect=GCS \
-  --parameters sourceConfigURL=gs://$BUCKET/exports/shop/run1/manifest.json \
+  --parameters sourceConfigURL=gs://$BUCKET/exports/shop/run1 \
   --parameters projectId=$PROJECT,instanceId=unused,databaseId=shop \
   --parameters spannerOmniEndpoint=http://10.20.0.30:15000 \
   --parameters outputDirectory=gs://$BUCKET/migration/shop-omni/
@@ -305,7 +324,7 @@ gcloud dataflow flex-template run "arangodb-shop-omni-$(date +%Y%m%d-%H%M%S)" \
 mvn -pl v2/sourcedb-to-spanner exec:java -Dexec.classpathScope=test \
   -Dexec.mainClass=com.google.cloud.teleport.v2.templates.SourceDbToSpanner \
   -Dexec.args="--runner=DirectRunner --sourceDbDialect=GCS \
-    --sourceConfigURL=/tmp/arango-export/e2e/manifest.json \
+    --sourceConfigURL=/tmp/arango-export/e2e \
     --projectId=x --instanceId=x --databaseId=shop \
     --spannerOmniEndpoint=http://localhost:15000 --outputDirectory=/tmp/arango-out/"
 ```
@@ -363,6 +382,6 @@ python3 tools/arangodb-gcs-exporter/e2e/validate.py --export-dir <export dir> \
    matter for single-server Omni.
 6. **Deletes aren't propagated on re-runs.** Re-runs are upserts, so documents deleted at
    the source stay in Spanner. Use a fresh database, or a fresh `exportId` plus cleanup.
-7. **Unmatched collections fail the launch.** A manifest table with no matching Spanner
+7. **Unmatched collections fail the launch.** An export table with no matching Spanner
    table fails the job before it starts, unless `tables` is set (then it is only logged).
    Create the DDL first (§4).

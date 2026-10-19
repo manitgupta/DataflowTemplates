@@ -20,7 +20,7 @@ on [Metadata Annotations](https://github.com/GoogleCloudPlatform/DataflowTemplat
 
 ### Required parameters
 
-* **sourceConfigURL**: The URL of the source connection config file. The file format is dependent on the source type. For Astra, it will point to an Astra connection config file ([sample](src/test/resources/SourceConfig/astra-connection-config.json)). For JDBC, it will point to a JDBC sharding config file ([sample](src/test/resources/SourceConfig/jdbc-shard-config.json)). For Cassandra, it will point to a Cassandra driver config file ([sample](src/test/resources/SourceConfig/cassandra-driver-config.conf)). For GCS, it will point to the `manifest.json` of the export, or to the export directory ending in `/` ([sample](src/test/resources/SourceConfig/gcs-manifest.json)). This parameter is required. For example, `gs://your-bucket/source-config.json`. Defaults to empty.
+* **sourceConfigURL**: The URL of the source connection config file. The file format is dependent on the source type. For Astra, it will point to an Astra connection config file ([sample](src/test/resources/SourceConfig/astra-connection-config.json)). For JDBC, it will point to a JDBC sharding config file ([sample](src/test/resources/SourceConfig/jdbc-shard-config.json)). For Cassandra, it will point to a Cassandra driver config file ([sample](src/test/resources/SourceConfig/cassandra-driver-config.conf)). For GCS, it will point to the root directory of the Avro export, laid out as `<root>/<table>/[<shardId>/]*.avro` like the `gcsOutputDirectory` output (trailing `/` optional). This parameter is required. For example, `gs://your-bucket/source-config.json`. Defaults to empty.
 * **instanceId**: The destination Cloud Spanner instance.
 * **databaseId**: The destination Cloud Spanner database.
 * **projectId**: This is the name of the Cloud Spanner project.
@@ -28,7 +28,7 @@ on [Metadata Annotations](https://github.com/GoogleCloudPlatform/DataflowTemplat
 
 ### Optional parameters
 
-* **sourceDbDialect**: Possible values are `CASSANDRA`, `ASTRA_DB`, `MYSQL`, `POSTGRESQL`, `ORACLE`, `SQLSERVER` and `GCS`. `GCS` reads an Avro file export described by a `manifest.json` (for example produced by the ArangoDB Spark exporter); the manifest must be on Cloud Storage (gs://) or a local path. Defaults to: MYSQL.
+* **sourceDbDialect**: Possible values are `CASSANDRA`, `ASTRA_DB`, `MYSQL`, `POSTGRESQL`, `ORACLE`, `SQLSERVER` and `GCS`. `GCS` reads an Avro export in the format this template writes with `gcsOutputDirectory` (for example produced by the ArangoDB Spark exporter) from Cloud Storage (gs://) or a local path. Defaults to: MYSQL.
 * **jdbcDriverJars**: The comma-separated list of driver JAR files. For example, `gs://your-bucket/driver_jar1.jar,gs://your-bucket/driver_jar2.jar`. Defaults to empty.
 * **jdbcDriverClassName**: The JDBC driver class name. For example, `com.mysql.jdbc.Driver`. Defaults to: com.mysql.jdbc.Driver.
 * **tables**: Tables to migrate from source. Defaults to empty.

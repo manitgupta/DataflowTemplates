@@ -41,8 +41,8 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
 /**
- * Reads the written Avro files back and computes the ground truth for the manifest: rows per file,
- * total rows, the largest {@code doc} in bytes and the keys of oversized documents.
+ * Reads the committed Avro files back and computes the ground truth for the summary: rows per file,
+ * total rows, the largest {@code payload.doc} in bytes and the keys of oversized documents.
  */
 public final class ExportReadback {
 
@@ -56,13 +56,13 @@ public final class ExportReadback {
   /** Readback result for one table. */
   public static final class Result {
     public final long rowCount;
-    public final List<ExportManifest.FileEntry> files;
+    public final List<ExportSummary.FileEntry> files;
     public final long maxDocBytes;
     public final List<String> oversizedKeys;
 
     Result(
         long rowCount,
-        List<ExportManifest.FileEntry> files,
+        List<ExportSummary.FileEntry> files,
         long maxDocBytes,
         List<String> oversizedKeys) {
       this.rowCount = rowCount;
@@ -96,7 +96,10 @@ public final class ExportReadback {
             .format("avro")
             .option("recursiveFileLookup", "true")
             .load(tableDir)
-            .select(col("key"), expr("octet_length(doc)").as("len"), input_file_name().as("f"));
+            .select(
+                col("payload.key").as("key"),
+                expr("octet_length(payload.doc)").as("len"),
+                input_file_name().as("f"));
     // One pass over the data: oversized keys are collected in the same aggregation (collect_list
     // skips the nulls of non-oversized rows; a file's list is tiny relative to its >10 MB docs).
     List<Row> perFile =
@@ -131,9 +134,9 @@ public final class ExportReadback {
       maxDocBytes = Math.max(maxDocBytes, m);
     }
 
-    List<ExportManifest.FileEntry> files = new ArrayList<>();
+    List<ExportSummary.FileEntry> files = new ArrayList<>();
     for (Map.Entry<String, Long> e : rowsByFile.entrySet()) {
-      files.add(new ExportManifest.FileEntry(relativize(root, new Path(e.getKey())), e.getValue()));
+      files.add(new ExportSummary.FileEntry(relativize(root, new Path(e.getKey())), e.getValue()));
     }
 
     Collections.sort(oversized);

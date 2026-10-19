@@ -52,8 +52,8 @@
 <g id="node2" class="node">
 <title>GcsExport</title>
 <polygon fill="lightblue" stroke="lightblue" points="702.5,-612.5 515.5,-612.5 515.5,-555 702.5,-555 702.5,-612.5"/>
-<text xml:space="preserve" text-anchor="middle" x="609" y="-595.2" font-family="Times,serif" font-size="14.00">File export on GCS</text>
-<text xml:space="preserve" text-anchor="middle" x="609" y="-578.7" font-family="Times,serif" font-size="14.00">(manifest.json + Avro,</text>
+<text xml:space="preserve" text-anchor="middle" x="609" y="-595.2" font-family="Times,serif" font-size="14.00">Avro export on GCS</text>
+<text xml:space="preserve" text-anchor="middle" x="609" y="-578.7" font-family="Times,serif" font-size="14.00">(bulk migration format,</text>
 <text xml:space="preserve" text-anchor="middle" x="609" y="-562.2" font-family="Times,serif" font-size="14.00">e.g. ArangoDB Spark exporter)</text>
 </g>
 <!-- GcsAvroTableReader -->
@@ -127,9 +127,9 @@
 <!-- GcsIoWrapper -->
 <g id="node8" class="node">
 <title>GcsIoWrapper</title>
-<polygon fill="lightblue" stroke="lightblue" points="440.25,-604.25 335.75,-604.25 335.75,-563.25 440.25,-563.25 440.25,-604.25"/>
+<polygon fill="lightblue" stroke="lightblue" points="438.38,-604.25 337.62,-604.25 337.62,-563.25 438.38,-563.25 438.38,-604.25"/>
 <text xml:space="preserve" text-anchor="middle" x="388" y="-586.95" font-family="Times,serif" font-size="14.00">GcsIoWrapper</text>
-<text xml:space="preserve" text-anchor="middle" x="388" y="-570.45" font-family="Times,serif" font-size="14.00">(reads manifest)</text>
+<text xml:space="preserve" text-anchor="middle" x="388" y="-570.45" font-family="Times,serif" font-size="14.00">(lists table dirs)</text>
 </g>
 <!-- GcsIoWrapperFactory&#45;&gt;GcsIoWrapper -->
 <g id="edge5" class="edge">

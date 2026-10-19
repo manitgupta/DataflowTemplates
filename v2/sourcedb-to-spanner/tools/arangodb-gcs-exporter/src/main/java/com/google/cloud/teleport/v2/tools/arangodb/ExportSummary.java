@@ -23,17 +23,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The export manifest ({@code manifest.json}, {@code formatVersion} 1). Field names and meaning are
- * the contract with the SourceDB to Spanner template's GCS source. Null fields are omitted.
+ * The export summary ({@code arangodb-export.json}, {@code formatVersion} 2): source information,
+ * consistency, per-table counts, revisions, data files and statistics. It is informational (for
+ * operators and the e2e validation); the SourceDB to Spanner template does not read it, it reads
+ * the bulk GCS layout ({@code <table>/<md5>-NNNNN-of-MMMMM.avro}) directly. Null fields are
+ * omitted.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonPropertyOrder({"formatVersion", "fileFormat", "exportId", "producer", "source", "tables"})
-public final class ExportManifest implements Serializable {
+public final class ExportSummary implements Serializable {
 
   private static final long serialVersionUID = 1L;
 
-  public static final int FORMAT_VERSION = 1;
+  public static final int FORMAT_VERSION = 2;
   public static final String FILE_FORMAT_AVRO = "AVRO";
 
   public int formatVersion = FORMAT_VERSION;
@@ -79,7 +82,6 @@ public final class ExportManifest implements Serializable {
     "sourceRevisionBefore",
     "sourceRevisionAfter",
     "files",
-    "filePattern",
     "stats"
   })
   public static final class Table implements Serializable {
@@ -95,11 +97,10 @@ public final class ExportManifest implements Serializable {
     public String sourceRevisionBefore;
     public String sourceRevisionAfter;
     public List<FileEntry> files;
-    public String filePattern;
     public Stats stats;
   }
 
-  /** One column of the Avro files. */
+  /** One column of the Avro {@code payload} record. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   @JsonIgnoreProperties(ignoreUnknown = true)
   @JsonPropertyOrder({"name", "type", "nullable", "sourceName"})
@@ -120,7 +121,7 @@ public final class ExportManifest implements Serializable {
     }
   }
 
-  /** One data file, relative to the manifest directory. */
+  /** One data file, relative to the export root, with its Avro record count. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   @JsonIgnoreProperties(ignoreUnknown = true)
   @JsonPropertyOrder({"path", "rows"})

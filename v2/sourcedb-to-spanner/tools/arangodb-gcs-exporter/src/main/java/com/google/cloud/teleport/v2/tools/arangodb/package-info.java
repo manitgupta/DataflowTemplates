@@ -15,7 +15,7 @@
  */
 
 /**
- * Spark job that exports ArangoDB collections to Avro files plus a {@code manifest.json} on a
+ * Spark job that exports ArangoDB collections in the SourceDB to Spanner bulk GCS Avro format on a
  * Hadoop-compatible file system, for import with the SourceDB to Spanner template ({@code
  * sourceDbDialect=GCS}).
  */

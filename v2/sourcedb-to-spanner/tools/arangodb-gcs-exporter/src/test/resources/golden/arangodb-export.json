@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "fileFormat": "AVRO",
   "exportId": "20261017T100000Z",
   "producer": "arangodb-gcs-exporter/1.0.0 (spark 3.5.3, connector 1.10.0)",
@@ -29,8 +29,8 @@
       "sourceRevisionBefore": "_iK3x9--_-",
       "sourceRevisionAfter": "_iK3x9--_-",
       "files": [
-        {"path": "tables/user_profiles/part-00000-1b2c-c000.snappy.avro", "rows": 512},
-        {"path": "tables/user_profiles/part-00001-1b2c-c000.snappy.avro", "rows": 488}
+        {"path": "user_profiles/b36539a80425c7f2c6178856a7bb935f-00000-of-00002.avro", "rows": 512},
+        {"path": "user_profiles/b36539a80425c7f2c6178856a7bb935f-00001-of-00002.avro", "rows": 488}
       ],
       "stats": {"maxDocBytes": 20311, "oversizedKeys": []}
     },
@@ -50,7 +50,7 @@
       "rowCount": 3,
       "sourceCountBefore": 3,
       "sourceCountAfter": 3,
-      "files": [{"path": "tables/knows/part-00000-77aa-c000.snappy.avro", "rows": 3}],
+      "files": [{"path": "knows/a7f80905c6bc6e9912edef8c18d80a52-00000-of-00001.avro", "rows": 3}],
       "stats": {"maxDocBytes": 140, "oversizedKeys": []}
     }
   ]

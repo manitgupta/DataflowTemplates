@@ -19,54 +19,51 @@ import java.io.Serializable;
 import java.util.Objects;
 
 /**
- * Source config for the GCS (manifest + Avro files) source; holds only the manifest URI.
+ * Source config for the GCS source, which reads an Avro export in the bulk migration format (see
+ * {@link com.google.cloud.teleport.v2.spanner.migrations.gcs.BulkGcsFormat}); holds only the root
+ * directory of the export.
  *
- * <p>The manifest URI may point to any Beam FileSystem (gs://, s3://, local paths, ...). No I/O is
- * performed when the config is created; the manifest is read by the source connector.
+ * <p>The root may be on any Beam FileSystem (gs://, local paths, ...). It is normalized by trimming
+ * whitespace and removing trailing {@code /}s. No I/O is performed when the config is created; the
+ * export is listed by the source connector.
  */
 public final class GcsSourceConfig implements SourceConnectionConfig, Serializable {
 
-  /** File name of the export manifest, appended to directory URIs ending in {@code /}. */
-  public static final String MANIFEST_FILE_NAME = "manifest.json";
-
-  private final String manifestPath;
+  private final String rootPath;
 
   /**
-   * Creates a config pointing to the given manifest.
+   * Creates a config pointing to the given export root directory.
    *
-   * @param manifestPath URI of the export manifest.
-   * @throws IllegalArgumentException if {@code manifestPath} is null or blank.
+   * @param rootPath URI of the root directory of the export; a trailing {@code /} is optional.
+   * @throws IllegalArgumentException if {@code rootPath} is null or blank.
    */
-  public GcsSourceConfig(String manifestPath) {
-    if (manifestPath == null || manifestPath.trim().isEmpty()) {
-      throw new IllegalArgumentException("GCS source manifest path must not be blank.");
+  public GcsSourceConfig(String rootPath) {
+    String normalized = rootPath == null ? "" : rootPath.trim();
+    while (normalized.endsWith("/")) {
+      normalized = normalized.substring(0, normalized.length() - 1);
     }
-    this.manifestPath = manifestPath;
+    if (normalized.isEmpty()) {
+      throw new IllegalArgumentException(
+          "sourceConfigURL must point to the root directory of the Avro export for the GCS"
+              + " source.");
+    }
+    this.rootPath = normalized;
   }
 
   /**
-   * Creates a config from a manifest or export-directory URI. A URI ending in {@code /} is treated
-   * as the export directory and {@link #MANIFEST_FILE_NAME} is appended to it.
+   * Creates a config from the root directory URI of the export.
    *
-   * @param uri URI of the manifest, or of the export directory ending in {@code /}.
+   * @param uri URI of the root directory of the export; a trailing {@code /} is optional.
    * @return the config.
    * @throws IllegalArgumentException if {@code uri} is null or blank.
    */
   public static GcsSourceConfig fromUri(String uri) {
-    if (uri == null || uri.trim().isEmpty()) {
-      throw new IllegalArgumentException(
-          "sourceConfigURL must point to the export manifest for the GCS source.");
-    }
-    String trimmed = uri.trim();
-    if (trimmed.endsWith("/")) {
-      trimmed = trimmed + MANIFEST_FILE_NAME;
-    }
-    return new GcsSourceConfig(trimmed);
+    return new GcsSourceConfig(uri);
   }
 
-  /** Returns the URI of the export manifest. */
-  public String getManifestPath() {
-    return manifestPath;
+  /** Returns the URI of the root directory of the export, without trailing {@code /}. */
+  public String getRootPath() {
+    return rootPath;
   }
 
   @Override
@@ -77,16 +74,16 @@ public final class GcsSourceConfig implements SourceConnectionConfig, Serializab
     if (!(o instanceof GcsSourceConfig)) {
       return false;
     }
-    return manifestPath.equals(((GcsSourceConfig) o).manifestPath);
+    return rootPath.equals(((GcsSourceConfig) o).rootPath);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(manifestPath);
+    return Objects.hash(rootPath);
   }
 
   @Override
   public String toString() {
-    return "GcsSourceConfig{manifestPath='" + manifestPath + "'}";
+    return "GcsSourceConfig{rootPath='" + rootPath + "'}";
   }
 }

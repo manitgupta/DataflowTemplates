@@ -29,17 +29,14 @@ public class GcsSourceConfigTest {
 
   @Test
   public void testValid() {
-    GcsSourceConfig config = GcsSourceConfig.fromUri("gs://b/exp/manifest.json");
-    assertThat(config.getManifestPath()).isEqualTo("gs://b/exp/manifest.json");
-    assertThat(new GcsSourceConfig("/tmp/m.json").getManifestPath()).isEqualTo("/tmp/m.json");
+    assertThat(GcsSourceConfig.fromUri("gs://b/exp").getRootPath()).isEqualTo("gs://b/exp");
+    assertThat(new GcsSourceConfig("/tmp/exp").getRootPath()).isEqualTo("/tmp/exp");
   }
 
   @Test
-  public void testTrailingSlashAppendsManifest() {
-    assertThat(GcsSourceConfig.fromUri("gs://b/exp/").getManifestPath())
-        .isEqualTo("gs://b/exp/" + GcsSourceConfig.MANIFEST_FILE_NAME);
-    assertThat(GcsSourceConfig.fromUri(" gs://b/exp/ ").getManifestPath())
-        .isEqualTo("gs://b/exp/manifest.json");
+  public void testTrailingSlashAndWhitespaceAreRemoved() {
+    assertThat(GcsSourceConfig.fromUri("gs://b/exp/").getRootPath()).isEqualTo("gs://b/exp");
+    assertThat(GcsSourceConfig.fromUri(" gs://b/exp// ").getRootPath()).isEqualTo("gs://b/exp");
   }
 
   @Test
@@ -47,6 +44,7 @@ public class GcsSourceConfigTest {
     assertThrows(IllegalArgumentException.class, () -> GcsSourceConfig.fromUri(null));
     assertThrows(IllegalArgumentException.class, () -> GcsSourceConfig.fromUri(""));
     assertThrows(IllegalArgumentException.class, () -> GcsSourceConfig.fromUri("   "));
+    assertThrows(IllegalArgumentException.class, () -> GcsSourceConfig.fromUri("/"));
     assertThrows(IllegalArgumentException.class, () -> new GcsSourceConfig(null));
     assertThrows(IllegalArgumentException.class, () -> new GcsSourceConfig(" "));
   }
@@ -54,14 +52,14 @@ public class GcsSourceConfigTest {
   @Test
   public void testEqualsHashCodeToString() {
     GcsSourceConfig a = GcsSourceConfig.fromUri("gs://b/exp/");
-    GcsSourceConfig b = new GcsSourceConfig("gs://b/exp/manifest.json");
-    GcsSourceConfig c = new GcsSourceConfig("gs://b/other/manifest.json");
+    GcsSourceConfig b = new GcsSourceConfig("gs://b/exp");
+    GcsSourceConfig c = new GcsSourceConfig("gs://b/other");
     assertThat(a).isEqualTo(b);
     assertThat(a).isEqualTo(a);
     assertThat(a.hashCode()).isEqualTo(b.hashCode());
     assertThat(a).isNotEqualTo(c);
-    assertThat(a).isNotEqualTo("gs://b/exp/manifest.json");
-    assertThat(a.toString()).contains("gs://b/exp/manifest.json");
+    assertThat(a).isNotEqualTo("gs://b/exp");
+    assertThat(a.toString()).contains("gs://b/exp");
     assertThat(SerializableUtils.clone(a)).isEqualTo(a);
   }
 }

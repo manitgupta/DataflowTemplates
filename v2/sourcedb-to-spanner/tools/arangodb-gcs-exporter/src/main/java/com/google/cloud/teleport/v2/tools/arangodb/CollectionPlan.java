@@ -15,57 +15,74 @@
  */
 package com.google.cloud.teleport.v2.tools.arangodb;
 
+import static org.apache.spark.sql.functions.array;
+import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.lit;
+import static org.apache.spark.sql.functions.struct;
+
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.Serializable;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import org.apache.spark.sql.Column;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
 /**
- * How one collection is exported: target table name, envelope schema (Spark and Avro), manifest
- * columns and the requested number of partitions.
+ * How one collection is exported: target table name, the Spark read schema, the Avro writer schema
+ * of the SourceDB to Spanner bulk GCS format, summary columns and the requested number of
+ * partitions.
+ *
+ * <p>The writer schemas are the resources {@code avro/arangodb-document.avsc} and {@code
+ * avro/arangodb-edge.avsc}: byte for byte what the template's {@code SourceRow.gcsSchema()} returns
+ * for such a table ({@code SourceRowWithMetadata{tableName, shardId, primaryKeys, payload}}), so
+ * the file names ({@code md5Hex(schema)}) and headers equal what the template's own GCS sink
+ * writes.
  */
 public final class CollectionPlan implements Serializable {
 
   private static final long serialVersionUID = 1L;
 
-  private static final String DOCUMENT_AVRO_SCHEMA =
-      "{\"type\":\"record\",\"name\":\"ArangoDocumentRow\","
-          + "\"namespace\":\"com.google.cloud.teleport.v2.tools.arangodb\",\"fields\":["
-          + "{\"name\":\"key\",\"type\":\"string\"},"
-          + "{\"name\":\"id\",\"type\":[\"null\",\"string\"],\"default\":null},"
-          + "{\"name\":\"rev\",\"type\":[\"null\",\"string\"],\"default\":null},"
-          + "{\"name\":\"doc\",\"type\":\"string\"}]}";
+  /** Classpath resource with the bulk GCS writer schema of document collections. */
+  static final String DOCUMENT_SCHEMA_RESOURCE = "/avro/arangodb-document.avsc";
 
-  private static final String EDGE_AVRO_SCHEMA =
-      "{\"type\":\"record\",\"name\":\"ArangoEdgeRow\","
-          + "\"namespace\":\"com.google.cloud.teleport.v2.tools.arangodb\",\"fields\":["
-          + "{\"name\":\"key\",\"type\":\"string\"},"
-          + "{\"name\":\"id\",\"type\":[\"null\",\"string\"],\"default\":null},"
-          + "{\"name\":\"rev\",\"type\":[\"null\",\"string\"],\"default\":null},"
-          + "{\"name\":\"from_id\",\"type\":\"string\"},"
-          + "{\"name\":\"to_id\",\"type\":\"string\"},"
-          + "{\"name\":\"doc\",\"type\":\"string\"}]}";
+  /** Classpath resource with the bulk GCS writer schema of edge collections. */
+  static final String EDGE_SCHEMA_RESOURCE = "/avro/arangodb-edge.avsc";
 
-  private static final List<ExportManifest.Column> DOCUMENT_COLUMNS =
+  /** Value of the {@code primaryKeys} field of every record. */
+  static final String PRIMARY_KEY = "key";
+
+  private static final String DOCUMENT_AVRO_SCHEMA = readResource(DOCUMENT_SCHEMA_RESOURCE);
+  private static final String EDGE_AVRO_SCHEMA = readResource(EDGE_SCHEMA_RESOURCE);
+  private static final String DOCUMENT_AVRO_SCHEMA_MD5 = md5Hex(DOCUMENT_AVRO_SCHEMA);
+  private static final String EDGE_AVRO_SCHEMA_MD5 = md5Hex(EDGE_AVRO_SCHEMA);
+
+  private static final List<ExportSummary.Column> DOCUMENT_COLUMNS =
       Collections.unmodifiableList(
           Arrays.asList(
-              new ExportManifest.Column("key", "STRING", false, "_key"),
-              new ExportManifest.Column("id", "STRING", true, "_id"),
-              new ExportManifest.Column("rev", "STRING", true, "_rev"),
-              new ExportManifest.Column("doc", "JSON", false, "$")));
+              new ExportSummary.Column("key", "STRING", false, "_key"),
+              new ExportSummary.Column("id", "STRING", true, "_id"),
+              new ExportSummary.Column("rev", "STRING", true, "_rev"),
+              new ExportSummary.Column("doc", "JSON", false, "$")));
 
-  private static final List<ExportManifest.Column> EDGE_COLUMNS =
+  private static final List<ExportSummary.Column> EDGE_COLUMNS =
       Collections.unmodifiableList(
           Arrays.asList(
-              new ExportManifest.Column("key", "STRING", false, "_key"),
-              new ExportManifest.Column("id", "STRING", true, "_id"),
-              new ExportManifest.Column("rev", "STRING", true, "_rev"),
-              new ExportManifest.Column("from_id", "STRING", false, "_from"),
-              new ExportManifest.Column("to_id", "STRING", false, "_to"),
-              new ExportManifest.Column("doc", "JSON", false, "$")));
+              new ExportSummary.Column("key", "STRING", false, "_key"),
+              new ExportSummary.Column("id", "STRING", true, "_id"),
+              new ExportSummary.Column("rev", "STRING", true, "_rev"),
+              new ExportSummary.Column("from_id", "STRING", false, "_from"),
+              new ExportSummary.Column("to_id", "STRING", false, "_to"),
+              new ExportSummary.Column("doc", "JSON", false, "$")));
 
   private final CollectionInfo info;
   private final String tableName;
@@ -115,12 +132,36 @@ public final class CollectionPlan implements Serializable {
     return info.kind() == CollectionKind.EDGE ? edgeStruct() : documentStruct();
   }
 
+  /** The Avro writer schema text (exactly the resource bytes). */
   public String avroSchemaJson() {
     return info.kind() == CollectionKind.EDGE ? edgeAvroSchema() : documentAvroSchema();
   }
 
-  /** Manifest columns, in Avro field order. */
-  public List<ExportManifest.Column> columns() {
+  /** Lower-case hex MD5 of {@link #avroSchemaJson()} (UTF-8): the data file name prefix. */
+  public String avroSchemaMd5() {
+    return info.kind() == CollectionKind.EDGE ? EDGE_AVRO_SCHEMA_MD5 : DOCUMENT_AVRO_SCHEMA_MD5;
+  }
+
+  /**
+   * Turns rows of {@link #structType()} into bulk GCS records: {@code tableName} = the table name,
+   * {@code shardId} = null, {@code primaryKeys} = {@code ["key"]} and {@code payload} = the row's
+   * columns in schema order.
+   */
+  public Dataset<Row> toBulkRecords(Dataset<Row> rows) {
+    StructField[] fields = structType().fields();
+    Column[] payload = new Column[fields.length];
+    for (int i = 0; i < fields.length; i++) {
+      payload[i] = col(fields[i].name());
+    }
+    return rows.select(
+        lit(tableName).as("tableName"),
+        lit(null).cast(DataTypes.StringType).as("shardId"),
+        array(lit(PRIMARY_KEY)).as("primaryKeys"),
+        struct(payload).as("payload"));
+  }
+
+  /** Summary (and DDL) columns, in payload field order. */
+  public List<ExportSummary.Column> columns() {
     return info.kind() == CollectionKind.EDGE ? EDGE_COLUMNS : DOCUMENT_COLUMNS;
   }
 
@@ -148,14 +189,43 @@ public final class CollectionPlan implements Serializable {
         });
   }
 
-  /** Avro writer schema {@code ArangoDocumentRow}. */
+  /** Bulk GCS writer schema of a document collection (payload {@code key, id, rev, doc}). */
   public static String documentAvroSchema() {
     return DOCUMENT_AVRO_SCHEMA;
   }
 
-  /** Avro writer schema {@code ArangoEdgeRow}. */
+  /**
+   * Bulk GCS writer schema of an edge collection (payload {@code key, id, rev, from_id, to_id,
+   * doc}).
+   */
   public static String edgeAvroSchema() {
     return EDGE_AVRO_SCHEMA;
+  }
+
+  /** Lower-case hex MD5 of the UTF-8 bytes of {@code text}. */
+  static String md5Hex(String text) {
+    try {
+      byte[] digest =
+          MessageDigest.getInstance("MD5").digest(text.getBytes(StandardCharsets.UTF_8));
+      StringBuilder sb = new StringBuilder(digest.length * 2);
+      for (byte b : digest) {
+        sb.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
+      }
+      return sb.toString();
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("MD5 is not available", e);
+    }
+  }
+
+  private static String readResource(String name) {
+    try (InputStream in = CollectionPlan.class.getResourceAsStream(name)) {
+      if (in == null) {
+        throw new IllegalStateException("Missing classpath resource " + name);
+      }
+      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new UncheckedIOException("Cannot read classpath resource " + name, e);
+    }
   }
 
   @Override

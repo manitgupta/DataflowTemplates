@@ -15,24 +15,16 @@
  */
 package com.google.cloud.teleport.v2.transforms;
 
-import com.google.cloud.teleport.v2.coders.GenericRecordCoder;
 import com.google.cloud.teleport.v2.config.TableConfiguration;
 import com.google.cloud.teleport.v2.dofn.SourceHashFn;
 import com.google.cloud.teleport.v2.dto.ComparisonRecord;
-import com.google.cloud.teleport.v2.fn.IdentityGenericRecordFn;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
+import com.google.cloud.teleport.v2.spanner.migrations.gcs.BulkGcsAvroReader;
+import com.google.cloud.teleport.v2.spanner.migrations.gcs.BulkGcsFormat;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.CustomTransformation;
-import com.google.common.base.CharMatcher;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
-import org.apache.beam.sdk.extensions.avro.io.AvroIO;
-import org.apache.beam.sdk.io.FileIO;
-import org.apache.beam.sdk.io.fs.EmptyMatchTreatment;
-import org.apache.beam.sdk.io.fs.MatchResult;
-import org.apache.beam.sdk.transforms.Create;
-import org.apache.beam.sdk.transforms.Filter;
+import java.util.Set;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
@@ -44,19 +36,9 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Reads the source Avro files under {@code gcsInputDirectory} and hashes their records.
  *
- * <p>Bulk migration output is laid out as root/table/shardId/file.avro. Which files get listed
- * depends on the configured filters:
- *
- * <ul>
- *   <li>No filters: one pattern, root/**.avro. Every file is read.
- *   <li>Tables only: one pattern per table, root/table/**.avro.
- *   <li>Tables and shards: one pattern per table and shard, root/table/shardId/**.avro.
- *   <li>Shards only: one pattern, root/**.avro, then {@link #isConfiguredFile} keeps the selected
- *       shards. A per-shard pattern with a wildcard table folder would list all of root once per
- *       shard.
- *   <li>A table name or shard ID containing * ? [ or \: same as shards only. Beam globs can't
- *       escape these characters, so such a name can't be written in a pattern.
- * </ul>
+ * <p>Bulk migration output is laid out as root/table/[shardId/]file.avro and read with the shared
+ * {@link BulkGcsAvroReader}; see {@link BulkGcsFormat} for which files get listed for the
+ * configured table and shard filters.
  */
 public class SourceReaderTransform
     extends PTransform<@NotNull PBegin, @NotNull PCollection<ComparisonRecord>> {
@@ -82,88 +64,34 @@ public class SourceReaderTransform
 
   @Override
   public @NotNull PCollection<ComparisonRecord> expand(PBegin input) {
-    PCollection<MatchResult.Metadata> files =
-        input
-            .apply("CreateFilePatterns", Create.of(getFilePatterns(gcsInputDirectory, tableConfig)))
-            .apply(
-                "MatchFilePatterns",
-                FileIO.matchAll().withEmptyMatchTreatment(EmptyMatchTreatment.ALLOW));
-    if (needsFileFilter(tableConfig)) {
-      String root = stripTrailingSlash(gcsInputDirectory);
-      TableConfiguration config = tableConfig;
-      files =
-          files.apply(
-              "KeepConfiguredFiles",
-              Filter.by(file -> isConfiguredFile(root, config, file.resourceId().toString())));
-    }
-    return files
-        .apply(
-            "ReadMatchedFiles",
-            FileIO.readMatches()
-                .withDirectoryTreatment(FileIO.ReadMatches.DirectoryTreatment.PROHIBIT))
+    return input
         .apply(
             "ReadSourceAvroRecords",
-            AvroIO.parseFilesGenericRecords(new IdentityGenericRecordFn())
-                .withCoder(GenericRecordCoder.of()))
+            BulkGcsAvroReader.of(
+                gcsInputDirectory, sourceTables(tableConfig), shardIds(tableConfig)))
         .apply(
             "CalculateSourceRecordsHash",
             ParDo.of(new SourceHashFn(ddlView, schemaMapperProvider, customTransformation))
                 .withSideInputs(ddlView));
   }
 
+  /** Delegates to {@link BulkGcsFormat#filePatterns}. */
   static List<String> getFilePatterns(String gcsInputDirectory, TableConfiguration tableConfig) {
-    String root = stripTrailingSlash(gcsInputDirectory);
-    // Without a table filter, or with a name Beam globs can't express, list root once.
-    // A shard-only filter root/*/shard pattern would re-list all of root for every shard, so this
-    // is handled by the filtering flow as well.
-    if (tableConfig == null || !tableConfig.hasTableFilters() || hasGlobChar(tableConfig)) {
-      return List.of(root + "/**.avro");
-    }
-    List<String> patterns = new ArrayList<>();
-    for (String table : tableConfig.getSourceTables()) {
-      if (!tableConfig.hasShardFilter()) {
-        patterns.add(root + "/" + table + "/**.avro");
-      } else {
-        for (String shardId : tableConfig.getShardIds()) {
-          // The '/' after the shard ID keeps shard_1 from matching shard_10.
-          patterns.add(root + "/" + table + "/" + shardId + "/**.avro");
-        }
-      }
-    }
-    return patterns;
+    return BulkGcsFormat.filePatterns(
+        gcsInputDirectory, sourceTables(tableConfig), shardIds(tableConfig));
   }
 
-  /**
-   * True iff {@link #getFilePatterns} lists all of root while tables or shards are selected, so the
-   * matched files must be filtered with {@link #isConfiguredFile}: shards-only runs, and names
-   * containing glob characters.
-   */
-  private static boolean needsFileFilter(TableConfiguration tableConfig) {
-    return tableConfig != null
-        && ((tableConfig.hasShardFilter() && !tableConfig.hasTableFilters())
-            || hasGlobChar(tableConfig));
-  }
-
-  /** True iff a table name or shard ID contains a character Beam globs can't escape. */
-  private static boolean hasGlobChar(TableConfiguration tableConfig) {
-    return Stream.concat(tableConfig.getSourceTables().stream(), tableConfig.getShardIds().stream())
-        .anyMatch(CharMatcher.anyOf("*?[\\")::matchesAnyOf);
-  }
-
-  /**
-   * True iff {@code path} (root/table/shard/file.avro) is under a configured table and, when shards
-   * are selected, a configured shard.
-   */
+  /** Delegates to {@link BulkGcsFormat#isConfiguredFile}. */
   static boolean isConfiguredFile(String root, TableConfiguration tableConfig, String path) {
-    String[] segments = path.substring(root.length() + 1).split("/", 3);
-    if (tableConfig.hasTableFilters() && !tableConfig.getSourceTables().contains(segments[0])) {
-      return false;
-    }
-    return !tableConfig.hasShardFilter()
-        || (segments.length == 3 && tableConfig.getShardIds().contains(segments[1]));
+    return BulkGcsFormat.isConfiguredFile(
+        root, sourceTables(tableConfig), shardIds(tableConfig), path);
   }
 
-  private static String stripTrailingSlash(String path) {
-    return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
+  private static Set<String> sourceTables(TableConfiguration tableConfig) {
+    return tableConfig == null ? Set.of() : tableConfig.getSourceTables();
+  }
+
+  private static Set<String> shardIds(TableConfiguration tableConfig) {
+    return tableConfig == null ? Set.of() : tableConfig.getShardIds();
   }
 }

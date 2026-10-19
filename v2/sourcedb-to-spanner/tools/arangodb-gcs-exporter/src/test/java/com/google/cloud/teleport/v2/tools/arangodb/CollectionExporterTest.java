@@ -73,8 +73,14 @@ public class CollectionExporterTest {
   public void directories() {
     CollectionPlan plan = CollectionPlan.create(USERS, "users", 1);
     String dir = CollectionExporter.tableDir("gs://b/e/x1", plan);
-    assertThat(dir).isEqualTo("gs://b/e/x1/tables/users");
-    assertThat(CollectionExporter.batchDir(dir, 7)).isEqualTo("gs://b/e/x1/tables/users/b00007");
+    assertThat(dir).isEqualTo("gs://b/e/x1/users");
+    String staging = CollectionExporter.stagingDir("gs://b/e/x1", plan);
+    assertThat(staging).isEqualTo("gs://b/e/x1/_staging/users");
+    assertThat(CollectionExporter.batchDir(staging, 7))
+        .isEqualTo("gs://b/e/x1/_staging/users/b00007");
+    assertThat(CollectionExporter.bulkFileName("abc", 3, 12)).isEqualTo("abc-00003-of-00012.avro");
+    assertThat(CollectionExporter.bulkFileName("abc", 123456, 200000))
+        .isEqualTo("abc-123456-of-200000.avro");
   }
 
   @Test

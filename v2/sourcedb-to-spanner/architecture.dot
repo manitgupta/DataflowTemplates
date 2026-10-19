@@ -2,7 +2,7 @@ digraph Architecture {
     node [shape=box, style=filled, color=lightblue];
 
     SourceDb [label="Source Database\n(Cassandra, MySQL, PostgreSQL)"];
-    GcsExport [label="File export on GCS\n(manifest.json + Avro,\ne.g. ArangoDB Spark exporter)"];
+    GcsExport [label="Avro export on GCS\n(bulk migration format,\ne.g. ArangoDB Spark exporter)"];
 
     subgraph cluster_Reader {
         label = "com.google.cloud.teleport.v2.source.reader";
@@ -15,7 +15,7 @@ digraph Architecture {
         label = "com.google.cloud.teleport.v2.source.gcs";
         GcsSrcToSpSourceConnector [label="GcsSrcToSpSourceConnector"];
         GcsIoWrapperFactory [label="GcsIoWrapperFactory"];
-        GcsIoWrapper [label="GcsIoWrapper\n(reads manifest)"];
+        GcsIoWrapper [label="GcsIoWrapper\n(lists table dirs)"];
         GcsAvroTableReader [label="GcsAvroTableReader\n(AvroIO.parseFilesGenericRecords)"];
     }
 

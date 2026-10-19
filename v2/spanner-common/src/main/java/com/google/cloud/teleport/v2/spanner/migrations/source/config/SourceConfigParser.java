@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Parses the source configuration from JSON/HOCON and resolves secrets from Secret Manager.
  *
- * <p>Supports the following source types: MySQL, PostgreSQL, Cassandra, Astra DB, and GCS file
+ * <p>Supports the following source types: MySQL, PostgreSQL, Cassandra, Astra DB, and GCS Avro
  * exports.
  */
 public class SourceConfigParser {
@@ -79,7 +79,7 @@ public class SourceConfigParser {
    * @param sourceTypeStr The source database type ("mysql", "postgresql", "cassandra", "astra_db",
    *     "gcs").
    * @param sourceConfigFilePath The URI to the HOCON or JSON config file. For "gcs" it is the URI
-   *     of the export manifest (or of the export directory, ending in "/").
+   *     of the root directory of the Avro export (bulk migration format).
    * @param resolveSecrets Whether to resolve secrets from Secret Manager.
    * @return A populated implementation of {@link SourceConnectionConfig}.
    */

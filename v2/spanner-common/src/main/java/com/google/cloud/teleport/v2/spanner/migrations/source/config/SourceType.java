@@ -23,7 +23,7 @@ public enum SourceType {
   /** Astra DB source database type. */
   ASTRA_DB(new String[] {"astra_db"}),
 
-  /** Files (Avro + manifest) on GCS or any Beam FileSystem. */
+  /** Avro exports in the bulk migration format on GCS or any Beam FileSystem. */
   GCS(new String[] {"gcs"}),
 
   /** MySQL source database type. */

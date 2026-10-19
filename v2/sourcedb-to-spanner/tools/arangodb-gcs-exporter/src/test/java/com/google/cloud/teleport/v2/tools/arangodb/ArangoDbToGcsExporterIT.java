@@ -29,7 +29,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,6 +39,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.spark.sql.Row;
@@ -226,14 +229,36 @@ public class ArangoDbToGcsExporterIT {
     return n.isTextual() ? "s:" + n.textValue() : n.toString();
   }
 
-  private static Map<String, Row> readTable(String exportRoot, ExportManifest.Table t) {
+  /** Pattern of a bulk GCS data file name of {@code table}, relative to the export root. */
+  private static String bulkFilePattern(ExportSummary.Table t) {
+    String md5 =
+        "EDGE".equals(t.collectionType)
+            ? CollectionPlan.md5Hex(CollectionPlan.edgeAvroSchema())
+            : CollectionPlan.md5Hex(CollectionPlan.documentAvroSchema());
+    return t.name + "/" + md5 + "-\\d{5}-of-\\d{5}\\.avro";
+  }
+
+  /**
+   * Reads a table's bulk files (every file in {@code <root>/<table>/}, which must be exactly the
+   * summary's files) and returns the payload rows by key, after checking the envelope fields.
+   */
+  private static Map<String, Row> readTable(String exportRoot, ExportSummary.Table t) {
     List<String> paths = new ArrayList<>();
-    for (ExportManifest.FileEntry f : t.files) {
+    Set<String> listed = new TreeSet<>();
+    for (ExportSummary.FileEntry f : t.files) {
+      assertThat(f.path).matches(bulkFilePattern(t));
       paths.add(exportRoot + "/" + f.path);
+      listed.add(f.path.substring(f.path.indexOf('/') + 1));
     }
+    String[] onDisk = new File(URI.create(exportRoot + "/" + t.name)).list();
+    assertThat(new TreeSet<>(Arrays.asList(onDisk))).isEqualTo(listed);
     Map<String, Row> byKey = new HashMap<>();
     for (Row row : spark.read().format("avro").load(paths.toArray(new String[0])).collectAsList()) {
-      byKey.put(row.getAs("key"), row);
+      assertThat((String) row.getAs("tableName")).isEqualTo(t.name);
+      assertThat((Object) row.getAs("shardId")).isNull();
+      assertThat(row.getList(row.fieldIndex("primaryKeys"))).containsExactly("key");
+      Row payload = row.getStruct(row.fieldIndex("payload"));
+      byKey.put(payload.getAs("key"), payload);
     }
     return byKey;
   }
@@ -247,15 +272,15 @@ public class ArangoDbToGcsExporterIT {
                 "--collections=user-profiles,knows",
                 "--partitions=3",
                 "--parallelWrites=2"));
-    ExportManifest m = ArangoDbToGcsExporter.run(opts, spark);
+    ExportSummary m = ArangoDbToGcsExporter.run(opts, spark);
 
     assertThat(m.source.consistent).isTrue();
     assertThat(m.tables).hasSize(2);
     assertThat(m.tables.get(0).name).isEqualTo("user_profiles");
     assertThat(m.tables.get(1).name).isEqualTo("knows");
-    for (ExportManifest.Table t : m.tables) {
+    for (ExportSummary.Table t : m.tables) {
       long sum = 0;
-      for (ExportManifest.FileEntry f : t.files) {
+      for (ExportSummary.FileEntry f : t.files) {
         sum += f.rows;
       }
       assertThat(sum).isEqualTo(t.rowCount);
@@ -279,7 +304,8 @@ public class ArangoDbToGcsExporterIT {
     assertThat((String) knows.get("e3").getAs("from_id")).isEqualTo("user-profiles/u3");
     assertThat((String) knows.get("e3").getAs("to_id")).isEqualTo("missing/dangling");
 
-    assertThat(new File(tmp.getRoot(), "exports/full/manifest.json").isFile()).isTrue();
+    assertThat(new File(tmp.getRoot(), "exports/full/arangodb-export.json").isFile()).isTrue();
+    assertThat(new File(tmp.getRoot(), "exports/full/_staging").exists()).isFalse();
     assertThat(new File(tmp.getRoot(), "exports/full/spanner-ddl-googlesql.sql").isFile()).isTrue();
     assertThat(new File(tmp.getRoot(), "exports/full/spanner-ddl-postgresql.sql").isFile())
         .isTrue();
@@ -307,7 +333,7 @@ public class ArangoDbToGcsExporterIT {
                 spark))
         .isNull();
     // And the real export of the same ranges.
-    ExportManifest m =
+    ExportSummary m =
         ArangoDbToGcsExporter.run(
             ExporterOptions.parse(
                 args(
@@ -324,7 +350,7 @@ public class ArangoDbToGcsExporterIT {
 
   @Test
   public void hashPartitioningExportsEverything() throws Exception {
-    ExportManifest m =
+    ExportSummary m =
         ArangoDbToGcsExporter.run(
             ExporterOptions.parse(
                 args(
@@ -338,7 +364,7 @@ public class ArangoDbToGcsExporterIT {
   }
 
   @Test
-  public void writesDuringExportFailWithoutManifest() throws Exception {
+  public void writesDuringExportFailWithoutSummary() throws Exception {
     db.createCollection("live");
     List<String> docs = new ArrayList<>();
     for (int i = 0; i < 20_000; i++) {
@@ -374,6 +400,6 @@ public class ArangoDbToGcsExporterIT {
       writer.join();
     }
     assertThat(inserted.get()).isGreaterThan(0);
-    assertThat(new File(tmp.getRoot(), "exports/live/manifest.json").exists()).isFalse();
+    assertThat(new File(tmp.getRoot(), "exports/live/arangodb-export.json").exists()).isFalse();
   }
 }

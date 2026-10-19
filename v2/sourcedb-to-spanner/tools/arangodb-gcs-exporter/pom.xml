@@ -16,9 +16,9 @@
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-->
 
 <!--
-  Standalone Spark job that exports ArangoDB collections to Avro files plus a manifest on any
-  Hadoop-compatible file system (GCS, HDFS, local). The output is consumed by the
-  SourceDB to Spanner template with sourceDbDialect=GCS.
+  Standalone Spark job that exports ArangoDB collections in the SourceDB to Spanner bulk GCS Avro
+  format (plus a summary and suggested DDL) on any Hadoop-compatible file system (GCS, HDFS,
+  local). The output is consumed by the SourceDB to Spanner template with sourceDbDialect=GCS.
 
   This project intentionally has no parent and is not listed in any <modules>.
   Build (Scala 2.13, default):  mvn -s ../../../../.mvn/settings.xml package
@@ -167,6 +167,17 @@
       <resource>
         <directory>src/main/resources</directory>
         <filtering>true</filtering>
+        <includes>
+          <include>*.properties</include>
+        </includes>
+      </resource>
+      <!-- The bulk GCS writer schemas must be copied byte for byte (their MD5 names the files). -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>*.properties</exclude>
+        </excludes>
       </resource>
     </resources>
     <plugins>

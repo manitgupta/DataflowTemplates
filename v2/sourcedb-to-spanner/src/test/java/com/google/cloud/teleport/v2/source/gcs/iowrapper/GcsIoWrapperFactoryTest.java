@@ -21,6 +21,7 @@ import static org.mockito.Mockito.mock;
 
 import com.google.cloud.teleport.v2.reader.io.IoWrapper;
 import com.google.cloud.teleport.v2.source.gcs.GcsTestFixtures;
+import com.google.cloud.teleport.v2.spanner.migrations.exceptions.InvalidOptionsException;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.GcsSourceConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.SourceConnectionConfig;
 import java.util.List;
@@ -40,8 +41,8 @@ public class GcsIoWrapperFactoryTest {
   public void testFromConfig() {
     GcsIoWrapperFactory factory =
         GcsIoWrapperFactory.fromConfig(GcsSourceConfig.fromUri("gs://my-bucket/exp/"));
-    assertThat(factory.manifestPath()).isEqualTo("gs://my-bucket/exp/manifest.json");
-    assertThat(factory).isEqualTo(GcsIoWrapperFactory.create("gs://my-bucket/exp/manifest.json"));
+    assertThat(factory.rootPath()).isEqualTo("gs://my-bucket/exp");
+    assertThat(factory).isEqualTo(GcsIoWrapperFactory.create("gs://my-bucket/exp/"));
   }
 
   @Test
@@ -54,9 +55,20 @@ public class GcsIoWrapperFactoryTest {
 
   @Test
   public void testGetIoWrapperWithoutWait() throws Exception {
-    String manifest = GcsTestFixtures.writeExport(tmp.getRoot(), true, null);
-    IoWrapper wrapper = GcsIoWrapperFactory.create(manifest).getIOWrapper(List.of(), null);
+    String root = GcsTestFixtures.writeExport(tmp.getRoot());
+    IoWrapper wrapper = GcsIoWrapperFactory.create(root).getIOWrapper(List.of(), null);
     assertThat(wrapper).isInstanceOf(GcsIoWrapper.class);
     assertThat(wrapper.getTableReaders()).hasSize(2);
+  }
+
+  @Test
+  public void testValidateSelectedSourceTables() throws Exception {
+    GcsIoWrapperFactory factory =
+        GcsIoWrapperFactory.create(GcsTestFixtures.writeExport(tmp.getRoot()));
+    factory.validateSelectedSourceTables(List.of("knows", "USER_PROFILES"), false);
+    factory.validateSelectedSourceTables(List.of("knows"), true);
+    assertThrows(
+        InvalidOptionsException.class,
+        () -> factory.validateSelectedSourceTables(List.of("knows"), false));
   }
 }

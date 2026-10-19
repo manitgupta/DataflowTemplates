@@ -15,71 +15,111 @@
  */
 package com.google.cloud.teleport.v2.source.gcs;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.cloud.teleport.v2.reader.io.row.SourceRow;
+import com.google.cloud.teleport.v2.reader.io.schema.SourceSchemaReference;
+import com.google.cloud.teleport.v2.reader.io.schema.SourceTableSchema;
+import com.google.cloud.teleport.v2.source.gcs.mappings.GcsMappingsProvider;
+import com.google.cloud.teleport.v2.source.gcs.schema.GcsSchemaReference;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.SourceColumnType;
+import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 import org.apache.avro.Schema;
 import org.apache.avro.file.CodecFactory;
-import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.DataFileWriter;
-import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.commons.codec.digest.DigestUtils;
 
-/** Test fixtures for the GCS source: Avro schemas of the ArangoDB exporter and export writers. */
+/**
+ * Test fixtures for the GCS source: ArangoDB-style document and edge tables built with the
+ * template's own {@link SourceTableSchema} (STRING and JSON columns), and writers of the bulk
+ * migration Avro format ({@code root/<tableName>/[<shard>/]<md5Hex(schema)>-NNNNN-of-MMMMM.avro}).
+ */
 public final class GcsTestFixtures {
 
-  public static final Schema DOCUMENT_SCHEMA =
-      new Schema.Parser()
-          .parse(
-              "{\"type\": \"record\", \"name\": \"ArangoDocumentRow\", \"namespace\":"
-                  + " \"com.google.cloud.teleport.v2.tools.arangodb\", \"fields\": ["
-                  + "{\"name\": \"key\", \"type\": \"string\"},"
-                  + "{\"name\": \"id\", \"type\": [\"null\", \"string\"], \"default\": null},"
-                  + "{\"name\": \"rev\", \"type\": [\"null\", \"string\"], \"default\": null},"
-                  + "{\"name\": \"doc\", \"type\": \"string\"}]}");
+  public static final SourceSchemaReference REF =
+      SourceSchemaReference.ofGcs(GcsSchemaReference.builder().setExportId("fixture").build());
 
-  public static final Schema EDGE_SCHEMA =
-      new Schema.Parser()
-          .parse(
-              "{\"type\": \"record\", \"name\": \"ArangoEdgeRow\", \"namespace\":"
-                  + " \"com.google.cloud.teleport.v2.tools.arangodb\", \"fields\": ["
-                  + "{\"name\": \"key\", \"type\": \"string\"},"
-                  + "{\"name\": \"id\", \"type\": [\"null\", \"string\"], \"default\": null},"
-                  + "{\"name\": \"rev\", \"type\": [\"null\", \"string\"], \"default\": null},"
-                  + "{\"name\": \"from_id\", \"type\": \"string\"},"
-                  + "{\"name\": \"to_id\", \"type\": \"string\"},"
-                  + "{\"name\": \"doc\", \"type\": \"string\"}]}");
-
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  public static final long READ_TIME_MICROS = 1_760_000_000_000_000L;
 
   private GcsTestFixtures() {}
 
-  public static GenericRecord document(String key, String doc) {
-    GenericRecord r = new GenericData.Record(DOCUMENT_SCHEMA);
-    r.put("key", key);
-    r.put("id", "user_profiles/" + key);
-    r.put("rev", "_rev" + key);
-    r.put("doc", doc);
-    return r;
+  private static SourceColumnType type(String name) {
+    return new SourceColumnType(name, new Long[] {}, new Long[] {});
   }
 
-  public static GenericRecord edge(String key, String from, String to, String doc) {
-    GenericRecord r = new GenericData.Record(EDGE_SCHEMA);
-    r.put("key", key);
-    r.put("id", "knows/" + key);
-    r.put("rev", "_rev" + key);
-    r.put("from_id", from);
-    r.put("to_id", to);
-    r.put("doc", doc);
-    return r;
+  /** Document collection: key, id, rev STRING; doc JSON; primary key key. */
+  public static SourceTableSchema documentTable(String table) {
+    return SourceTableSchema.builder(GcsMappingsProvider.typeMapper())
+        .setTableName(table)
+        .setPrimaryKeyColumns(ImmutableList.of("key"))
+        .addSourceColumnNameToSourceColumnType("key", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("id", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("rev", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("doc", type("JSON"))
+        .build();
+  }
+
+  /** Edge collection: key, id, rev, from_id, to_id STRING; doc JSON; primary key key. */
+  public static SourceTableSchema edgeTable(String table) {
+    return SourceTableSchema.builder(GcsMappingsProvider.typeMapper())
+        .setTableName(table)
+        .setPrimaryKeyColumns(ImmutableList.of("key"))
+        .addSourceColumnNameToSourceColumnType("key", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("id", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("rev", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("from_id", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("to_id", type("STRING"))
+        .addSourceColumnNameToSourceColumnType("doc", type("JSON"))
+        .build();
+  }
+
+  public static SourceRow document(SourceTableSchema schema, String key, String doc) {
+    return SourceRow.builder(REF, schema, null, READ_TIME_MICROS)
+        .setField("key", key)
+        .setField("id", schema.tableName() + "/" + key)
+        .setField("rev", "_rev" + key)
+        .setField("doc", doc)
+        .build();
+  }
+
+  public static SourceRow edge(
+      SourceTableSchema schema, String key, String from, String to, String doc) {
+    return SourceRow.builder(REF, schema, null, READ_TIME_MICROS)
+        .setField("key", key)
+        .setField("id", schema.tableName() + "/" + key)
+        .setField("rev", "_rev" + key)
+        .setField("from_id", from)
+        .setField("to_id", to)
+        .setField("doc", doc)
+        .build();
+  }
+
+  /**
+   * Writes the rows' {@link SourceRow#toGcsRecord()} into one bulk-format file {@code
+   * root/<tableName>/[<shard>/]<md5Hex(schema)>-<index>-of-<count>.avro}. Like the template's sink,
+   * a non-null {@code shard} is also the records' {@code shardId}.
+   */
+  public static File writeBulkFile(
+      File root, @Nullable String shard, int index, int count, List<SourceRow> rows)
+      throws IOException {
+    Schema schema = rows.get(0).gcsSchema();
+    String json = schema.toString();
+    String dir = rows.get(0).tableName() + (shard == null ? "" : "/" + shard);
+    String name = String.format("%s-%05d-of-%05d.avro", DigestUtils.md5Hex(json), index, count);
+    List<GenericRecord> records = new ArrayList<>();
+    for (SourceRow row : rows) {
+      GenericRecord record = row.toGcsRecord();
+      if (shard != null) {
+        record.put("shardId", shard);
+      }
+      records.add(record);
+    }
+    return writeAvro(new File(root, dir + "/" + name), schema, records);
   }
 
   /** Writes the records into a snappy-compressed Avro container file. */
@@ -97,109 +137,35 @@ public final class GcsTestFixtures {
     return file;
   }
 
-  /** Writes the records to a temp Avro file and reads them back (values become Avro types). */
-  public static List<GenericRecord> roundTrip(File dir, Schema schema, List<GenericRecord> records)
-      throws IOException {
-    File f = writeAvro(new File(dir, "roundtrip-" + System.nanoTime() + ".avro"), schema, records);
-    List<GenericRecord> out = new ArrayList<>();
-    try (DataFileReader<GenericRecord> reader =
-        new DataFileReader<>(f, new GenericDatumReader<GenericRecord>())) {
-      while (reader.hasNext()) {
-        out.add(reader.next());
-      }
-    }
-    return out;
-  }
-
-  public static ObjectNode column(String name, String type, boolean nullable, String sourceName) {
-    ObjectNode c = MAPPER.createObjectNode();
-    c.put("name", name);
-    c.put("type", type);
-    c.put("nullable", nullable);
-    c.put("sourceName", sourceName);
-    return c;
-  }
-
   /**
-   * Writes an export with tables {@code user_profiles} (documents u1, u2 in two files and u3 in a
-   * third) and {@code knows} (edges e1, e2) under {@code dir} and returns the manifest path.
-   *
-   * @param consistent value of {@code source.consistent}.
-   * @param userProfilesRowCount manifest rowCount of user_profiles, or null to omit it.
+   * Writes an export with tables {@code user_profiles} (documents u1, u2 in one file and u3 in a
+   * second) and {@code knows} (edges e1, e2) under {@code root} and returns the root path.
    */
-  public static String writeExport(File dir, boolean consistent, Long userProfilesRowCount)
-      throws IOException {
-    writeAvro(
-        new File(dir, "tables/user_profiles/part-00000.avro"),
-        DOCUMENT_SCHEMA,
+  public static String writeExport(File root) throws IOException {
+    SourceTableSchema users = documentTable("user_profiles");
+    SourceTableSchema knows = edgeTable("knows");
+    writeBulkFile(
+        root,
+        null,
+        0,
+        2,
         List.of(
-            document("u1", "{\"_key\":\"u1\",\"name\":\"Ann\",\"tags\":[1,\"x\",null]}"),
-            document("u2", "{\"_key\":\"u2\",\"nested\":{\"a\":{}}}")));
-    writeAvro(
-        new File(dir, "tables/user_profiles/part-00001.avro"),
-        DOCUMENT_SCHEMA,
-        List.of(document("u3", "{\"_key\":\"u3\",\"emoji\":\"\ud83d\ude00\"}")));
-    writeAvro(
-        new File(dir, "tables/knows/part-00000.avro"),
-        EDGE_SCHEMA,
+            document(users, "u1", "{\"_key\":\"u1\",\"name\":\"Ann\",\"tags\":[1,\"x\",null]}"),
+            document(users, "u2", "{\"_key\":\"u2\",\"nested\":{\"a\":{}}}")));
+    writeBulkFile(
+        root,
+        null,
+        1,
+        2,
+        List.of(document(users, "u3", "{\"_key\":\"u3\",\"emoji\":\"\ud83d\ude00\"}")));
+    writeBulkFile(
+        root,
+        null,
+        0,
+        1,
         List.of(
-            edge("e1", "user_profiles/u1", "user_profiles/u2", "{\"_key\":\"e1\"}"),
-            edge("e2", "user_profiles/u2", "missing/zz", "{\"_key\":\"e2\"}")));
-
-    ObjectNode root = MAPPER.createObjectNode();
-    root.put("formatVersion", 1);
-    root.put("fileFormat", "AVRO");
-    root.put("exportId", "20261017T100000Z");
-    root.put("someFutureField", "ignored");
-    ObjectNode source = root.putObject("source");
-    source.put("system", "arangodb");
-    source.put("exportStartedAt", "2026-10-17T10:00:00Z");
-    source.put("consistent", consistent);
-    ArrayNode tables = root.putArray("tables");
-
-    ObjectNode users = tables.addObject();
-    users.put("name", "user_profiles");
-    users.put("sourceName", "user-profiles");
-    users.put("collectionType", "DOCUMENT");
-    users.putArray("primaryKey").add("key");
-    ArrayNode userCols = users.putArray("columns");
-    userCols.add(column("key", "STRING", false, "_key"));
-    userCols.add(column("id", "STRING", true, "_id"));
-    userCols.add(column("rev", "STRING", true, "_rev"));
-    userCols.add(column("doc", "JSON", false, "$"));
-    if (userProfilesRowCount != null) {
-      users.put("rowCount", userProfilesRowCount);
-    }
-    ArrayNode userFiles = users.putArray("files");
-    userFiles.addObject().put("path", "tables/user_profiles/part-00000.avro").put("rows", 2);
-    userFiles.addObject().put("path", "tables/user_profiles/part-00001.avro").put("rows", 1);
-
-    ObjectNode knows = tables.addObject();
-    knows.put("name", "knows");
-    knows.put("collectionType", "EDGE");
-    knows.putArray("primaryKey").add("key");
-    ArrayNode knowsCols = knows.putArray("columns");
-    knowsCols.add(column("key", "STRING", false, "_key"));
-    knowsCols.add(column("id", "STRING", true, "_id"));
-    knowsCols.add(column("rev", "STRING", true, "_rev"));
-    knowsCols.add(column("from_id", "STRING", false, "_from"));
-    knowsCols.add(column("to_id", "STRING", false, "_to"));
-    knowsCols.add(column("doc", "JSON", false, "$"));
-    knows.put("rowCount", 2);
-    knows.put("filePattern", "tables/knows/*.avro");
-
-    File manifest = new File(dir, "manifest.json");
-    Files.write(manifest.toPath(), MAPPER.writerWithDefaultPrettyPrinter().writeValueAsBytes(root));
-    return manifest.getAbsolutePath();
-  }
-
-  /** Reads a test resource as a string. */
-  public static String resource(String name) throws IOException {
-    try (var in = GcsTestFixtures.class.getClassLoader().getResourceAsStream(name)) {
-      if (in == null) {
-        throw new IOException("Missing resource " + name);
-      }
-      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-    }
+            edge(knows, "e1", "user_profiles/u1", "user_profiles/u2", "{\"_key\":\"e1\"}"),
+            edge(knows, "e2", "user_profiles/u2", "missing/zz", "{\"_key\":\"e2\"}")));
+    return root.getAbsolutePath();
   }
 }

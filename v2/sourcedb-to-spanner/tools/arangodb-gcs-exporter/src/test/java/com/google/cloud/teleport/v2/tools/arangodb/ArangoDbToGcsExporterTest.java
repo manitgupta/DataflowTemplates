@@ -70,9 +70,9 @@ public class ArangoDbToGcsExporterTest {
                 AVAILABLE, Arrays.asList("_graphs"), Collections.emptyList()));
   }
 
-  private static ExportManifest.Table table(
+  private static ExportSummary.Table table(
       long rows, long before, long after, String revBefore, String revAfter) {
-    ExportManifest.Table t = new ExportManifest.Table();
+    ExportSummary.Table t = new ExportSummary.Table();
     t.name = "t";
     t.sourceName = "t";
     t.rowCount = rows;
@@ -194,7 +194,7 @@ public class ArangoDbToGcsExporterTest {
   }
 
   @Test
-  public void checkNoExistingExport_refusesManifestOrTables() throws Exception {
+  public void checkNoExistingExport_refusesSummaryOrData() throws Exception {
     Configuration conf = new Configuration();
     File fresh = tmp.newFolder("fresh");
     ArangoDbToGcsExporter.checkNoExistingExport(uri(fresh), conf);
@@ -202,21 +202,27 @@ public class ArangoDbToGcsExporterTest {
         uri(new File(tmp.getRoot(), "does-not-exist")), conf);
 
     File withTables = tmp.newFolder("withTables");
-    new File(withTables, "tables/t/b00000").mkdirs();
+    new File(withTables, "_staging/t/b00000").mkdirs();
     IllegalArgumentException e1 =
         assertThrows(
             IllegalArgumentException.class,
             () -> ArangoDbToGcsExporter.checkNoExistingExport(uri(withTables), conf));
     assertThat(e1).hasMessageThat().contains("earlier incomplete run");
 
-    File withManifest = tmp.newFolder("withManifest");
+    File withTableDir = tmp.newFolder("withTableDir");
+    new File(withTableDir, "users").mkdirs();
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ArangoDbToGcsExporter.checkNoExistingExport(uri(withTableDir), conf));
+
+    File withSummary = tmp.newFolder("withSummary");
     Files.write(
-        new File(withManifest, ManifestWriter.MANIFEST_FILE).toPath(),
+        new File(withSummary, ExportSummaryWriter.SUMMARY_FILE).toPath(),
         "{}".getBytes(StandardCharsets.UTF_8));
     IllegalArgumentException e2 =
         assertThrows(
             IllegalArgumentException.class,
-            () -> ArangoDbToGcsExporter.checkNoExistingExport(uri(withManifest), conf));
-    assertThat(e2).hasMessageThat().contains("already has a manifest.json");
+            () -> ArangoDbToGcsExporter.checkNoExistingExport(uri(withSummary), conf));
+    assertThat(e2).hasMessageThat().contains("already has an arangodb-export.json");
   }
 }

@@ -18,38 +18,41 @@ package com.google.cloud.teleport.v2.source.gcs.mappings;
 import com.google.cloud.teleport.v2.reader.io.schema.typemapping.UnifiedTypeMapper;
 import com.google.cloud.teleport.v2.reader.io.schema.typemapping.UnifiedTypeMapping;
 import com.google.cloud.teleport.v2.reader.io.schema.typemapping.provider.unified.UnifiedMappingProvider;
+import com.google.cloud.teleport.v2.spanner.migrations.schema.SourceColumnType;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.time.DateTimeException;
-import java.time.Instant;
-import java.time.LocalDate;
+import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
-import org.apache.avro.generic.GenericFixed;
+import org.apache.avro.LogicalType;
+import org.apache.avro.Schema;
 
 /**
- * Maps the manifest column types of a GCS file export to unified types, and converts Avro values
- * read from the export files to the payload values expected by the unified Avro schema.
+ * Type handling of the GCS source, which reads the bulk migration Avro format.
+ *
+ * <p>The payload of every file already carries the unified Avro schema the template's own sink
+ * wrote, so payload values are copied as they are, except that strings become {@link String}s and
+ * JSON strings ({@code logicalType: json}) are canonicalized by {@link JsonNumberCanonicalizer}.
+ * Column type names are derived from the Avro field schemas, for logging and the source schema.
  */
 public final class GcsMappingsProvider {
+
+  /** Avro logical type name of JSON strings in the unified Avro schema. */
+  public static final String JSON_LOGICAL_TYPE = "json";
 
   private static final ImmutableMap<String, UnifiedMappingProvider.Type> TYPES =
       ImmutableMap.<String, UnifiedMappingProvider.Type>builder()
           .put("STRING", UnifiedMappingProvider.Type.STRING)
           .put("JSON", UnifiedMappingProvider.Type.JSON)
           .put("LONG", UnifiedMappingProvider.Type.LONG)
+          .put("INTEGER", UnifiedMappingProvider.Type.INTEGER)
           .put("DOUBLE", UnifiedMappingProvider.Type.DOUBLE)
+          .put("FLOAT", UnifiedMappingProvider.Type.FLOAT)
           .put("BOOLEAN", UnifiedMappingProvider.Type.BOOLEAN)
           .put("TIMESTAMP", UnifiedMappingProvider.Type.TIMESTAMP)
           .put("DATE", UnifiedMappingProvider.Type.DATE)
           .put("BYTES", UnifiedMappingProvider.Type.BYTES)
           .build();
-
-  /** Manifest column types supported by the GCS source (upper case). */
-  public static final ImmutableSet<String> SUPPORTED_TYPES = TYPES.keySet();
 
   private static final ImmutableMap<String, UnifiedTypeMapping> MAPPING =
       TYPES.entrySet().stream()
@@ -57,154 +60,124 @@ public final class GcsMappingsProvider {
               ImmutableMap.toImmutableMap(
                   e -> e.getKey(), e -> UnifiedMappingProvider.getMapping(e.getValue())));
 
+  private static final ImmutableMap<String, String> LOGICAL_TYPE_NAMES =
+      ImmutableMap.<String, String>builder()
+          .put(JSON_LOGICAL_TYPE, "JSON")
+          .put("timestamp-micros", "TIMESTAMP")
+          .put("timestamp-millis", "TIMESTAMP")
+          .put("local-timestamp-micros", "TIMESTAMP")
+          .put("local-timestamp-millis", "TIMESTAMP")
+          .put("date", "DATE")
+          .put("decimal", "DECIMAL")
+          .put("time-micros", "TIME")
+          .put("time-millis", "TIME")
+          .put("uuid", "UUID")
+          .build();
+
   private GcsMappingsProvider() {}
 
-  /** Returns the mapping from manifest type name to unified type mapping. */
+  /**
+   * Returns the mapping from type name to unified type mapping for the type names this source
+   * derives for common columns (see {@link #columnTypeName}).
+   */
   public static ImmutableMap<String, UnifiedTypeMapping> getMapping() {
     return MAPPING;
   }
 
-  /** Returns a {@link UnifiedTypeMapper} for manifest column types. */
+  /**
+   * Returns a {@link UnifiedTypeMapper} for {@link #getMapping()}. The GCS source itself adds
+   * columns with their file's Avro schema, so the mapper is only needed to create the table schema
+   * builder.
+   */
   public static UnifiedTypeMapper typeMapper() {
     return new UnifiedTypeMapper(getMapping());
   }
 
   /**
-   * Converts a value read from an export Avro file to the payload value for the given manifest
-   * type. {@code null} stays {@code null}. STRING and JSON never fail.
+   * Returns a readable type name for a payload field schema: the nullable union is unwrapped, a
+   * known logical type gives its name (e.g. {@code JSON}, {@code TIMESTAMP}, {@code DECIMAL}),
+   * otherwise the upper-case Avro type ({@code STRING}, {@code LONG}, {@code RECORD}, ...). A union
+   * with several non-null branches is {@code UNION}.
+   */
+  public static String columnTypeName(Schema fieldSchema) {
+    Schema schema = unwrapNullable(fieldSchema);
+    if (schema.getType() == Schema.Type.UNION) {
+      return "UNION";
+    }
+    String logicalName = logicalTypeName(schema);
+    if (logicalName != null) {
+      String known = LOGICAL_TYPE_NAMES.get(logicalName);
+      return known != null ? known : logicalName.toUpperCase(Locale.ROOT);
+    }
+    if (schema.getType() == Schema.Type.INT) {
+      return "INTEGER";
+    }
+    return schema.getType().getName().toUpperCase(Locale.ROOT);
+  }
+
+  /**
+   * Returns the {@link SourceColumnType} for a payload field schema, named by {@link
+   * #columnTypeName}.
+   */
+  public static SourceColumnType columnType(Schema fieldSchema) {
+    return new SourceColumnType(columnTypeName(fieldSchema), new Long[] {}, new Long[] {});
+  }
+
+  /** True iff the (possibly nullable) field schema is a string with {@code logicalType: json}. */
+  public static boolean isJson(Schema fieldSchema) {
+    Schema schema = unwrapNullable(fieldSchema);
+    return schema.getType() == Schema.Type.STRING
+        && JSON_LOGICAL_TYPE.equals(logicalTypeName(schema));
+  }
+
+  /** True iff the (possibly nullable) field schema is a plain Avro string. */
+  public static boolean isString(Schema fieldSchema) {
+    return unwrapNullable(fieldSchema).getType() == Schema.Type.STRING;
+  }
+
+  /**
+   * Converts a payload value read from a file to the value of the {@code SourceRow} payload: {@code
+   * null} stays {@code null}, JSON strings are canonicalized, other strings become {@link String}s
+   * and every other value is returned as is.
    *
-   * @param type manifest column type (case-insensitive).
+   * @param fieldSchema schema of the payload field.
    * @param avroValue value read from the Avro file.
-   * @return the payload value.
-   * @throws IllegalArgumentException if the value cannot be converted to the type.
    */
   @Nullable
-  public static Object toPayloadValue(String type, @Nullable Object avroValue) {
+  public static Object toPayloadValue(Schema fieldSchema, @Nullable Object avroValue) {
     if (avroValue == null) {
       return null;
     }
-    String upperType = type == null ? "" : type.toUpperCase(Locale.ROOT);
-    try {
-      switch (upperType) {
-        case "STRING":
-          return toStringValue(avroValue);
-        case "JSON":
-          return JsonNumberCanonicalizer.canonicalize(toStringValue(avroValue));
-        case "LONG":
-          return toLong(avroValue, upperType);
-        case "DOUBLE":
-          return toDouble(avroValue, upperType);
-        case "BOOLEAN":
-          return toBoolean(avroValue, upperType);
-        case "TIMESTAMP":
-          return toTimestampMicros(avroValue, upperType);
-        case "DATE":
-          return toEpochDay(avroValue, upperType);
-        case "BYTES":
-          return toBytes(avroValue, upperType);
-        default:
-          throw new IllegalArgumentException("Unsupported GCS source column type " + type);
+    if (avroValue instanceof CharSequence) {
+      if (isJson(fieldSchema)) {
+        return JsonNumberCanonicalizer.canonicalize(avroValue.toString());
       }
-    } catch (NumberFormatException | DateTimeException | ArithmeticException e) {
-      throw unconvertible(upperType, avroValue, e);
-    }
-  }
-
-  private static String toStringValue(Object value) {
-    if (value instanceof ByteBuffer) {
-      return StandardCharsets.UTF_8.decode(((ByteBuffer) value).duplicate()).toString();
-    }
-    return value.toString();
-  }
-
-  private static Long toLong(Object value, String type) {
-    if (value instanceof Long) {
-      return (Long) value;
-    }
-    if (value instanceof Integer || value instanceof Short || value instanceof Byte) {
-      return ((Number) value).longValue();
-    }
-    if (value instanceof CharSequence) {
-      return Long.parseLong(value.toString().trim());
-    }
-    throw unconvertible(type, value, null);
-  }
-
-  private static Double toDouble(Object value, String type) {
-    if (value instanceof Number) {
-      return ((Number) value).doubleValue();
-    }
-    if (value instanceof CharSequence) {
-      return Double.parseDouble(value.toString().trim());
-    }
-    throw unconvertible(type, value, null);
-  }
-
-  private static Boolean toBoolean(Object value, String type) {
-    if (value instanceof Boolean) {
-      return (Boolean) value;
-    }
-    if (value instanceof CharSequence) {
-      String s = value.toString().trim();
-      if ("true".equalsIgnoreCase(s)) {
-        return Boolean.TRUE;
-      }
-      if ("false".equalsIgnoreCase(s)) {
-        return Boolean.FALSE;
+      if (isString(fieldSchema)) {
+        return avroValue.toString();
       }
     }
-    throw unconvertible(type, value, null);
+    return avroValue;
   }
 
-  private static Long toTimestampMicros(Object value, String type) {
-    if (value instanceof Long) {
-      return (Long) value;
+  /** Returns the only non-null branch of a {@code [null, X]} union, else {@code schema}. */
+  static Schema unwrapNullable(Schema schema) {
+    if (schema.getType() != Schema.Type.UNION) {
+      return schema;
     }
-    if (value instanceof CharSequence) {
-      Instant instant = Instant.parse(value.toString().trim());
-      return Math.addExact(
-          Math.multiplyExact(instant.getEpochSecond(), TimeUnit.SECONDS.toMicros(1)),
-          TimeUnit.NANOSECONDS.toMicros(instant.getNano()));
-    }
-    throw unconvertible(type, value, null);
+    List<Schema> nonNull =
+        schema.getTypes().stream()
+            .filter(s -> s.getType() != Schema.Type.NULL)
+            .collect(Collectors.toList());
+    return nonNull.size() == 1 ? nonNull.get(0) : schema;
   }
 
-  private static Integer toEpochDay(Object value, String type) {
-    if (value instanceof Integer) {
-      return (Integer) value;
+  @Nullable
+  private static String logicalTypeName(Schema schema) {
+    LogicalType logicalType = schema.getLogicalType();
+    if (logicalType != null) {
+      return logicalType.getName();
     }
-    if (value instanceof CharSequence) {
-      return Math.toIntExact(LocalDate.parse(value.toString().trim()).toEpochDay());
-    }
-    throw unconvertible(type, value, null);
-  }
-
-  private static ByteBuffer toBytes(Object value, String type) {
-    if (value instanceof ByteBuffer) {
-      return (ByteBuffer) value;
-    }
-    if (value instanceof byte[]) {
-      return ByteBuffer.wrap((byte[]) value);
-    }
-    if (value instanceof GenericFixed) {
-      return ByteBuffer.wrap(((GenericFixed) value).bytes());
-    }
-    throw unconvertible(type, value, null);
-  }
-
-  private static IllegalArgumentException unconvertible(
-      String type, Object value, @Nullable Throwable cause) {
-    String shown = String.valueOf(value);
-    if (shown.length() > 100) {
-      shown = shown.substring(0, 100) + "...";
-    }
-    return new IllegalArgumentException(
-        "Cannot convert value '"
-            + shown
-            + "' of class "
-            + value.getClass().getName()
-            + " to "
-            + type,
-        cause);
+    // Logical types unknown to Avro (e.g. "json") are kept as a plain property.
+    return schema.getProp(LogicalType.LOGICAL_TYPE_PROP);
   }
 }

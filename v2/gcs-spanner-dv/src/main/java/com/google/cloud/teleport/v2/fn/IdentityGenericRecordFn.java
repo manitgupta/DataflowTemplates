@@ -15,19 +15,13 @@
  */
 package com.google.cloud.teleport.v2.fn;
 
-import org.apache.avro.generic.GenericRecord;
-import org.apache.beam.sdk.transforms.SerializableFunction;
-
 /**
- * A {@link SerializableFunction} that returns the input {@link GenericRecord} as is.
+ * Returns the input {@link org.apache.avro.generic.GenericRecord} as is.
  *
- * <p>This is used to allow {@link org.apache.beam.sdk.extensions.avro.io.AvroIO} to parse
- * GenericRecords while deferring the coder inference/setting to a later stage (e.g. explicitly
- * setting {@link com.google.cloud.teleport.v2.coders.GenericRecordCoder}).
+ * @deprecated moved to {@link
+ *     com.google.cloud.teleport.v2.spanner.migrations.gcs.IdentityGenericRecordFn}, which is shared
+ *     with the bulk migration template's GCS source.
  */
-public class IdentityGenericRecordFn implements SerializableFunction<GenericRecord, GenericRecord> {
-  @Override
-  public GenericRecord apply(GenericRecord input) {
-    return input;
-  }
-}
+@Deprecated
+public class IdentityGenericRecordFn
+    extends com.google.cloud.teleport.v2.spanner.migrations.gcs.IdentityGenericRecordFn {}

@@ -77,6 +77,20 @@ public final class HadoopFiles {
     }
   }
 
+  /** Whether {@code uri} does not exist or is a directory without any entries. */
+  public static boolean isEmptyOrMissing(String uri, Configuration conf) {
+    Path path = new Path(uri);
+    try {
+      FileSystem fs = path.getFileSystem(conf);
+      if (!fs.exists(path)) {
+        return true;
+      }
+      return fs.getFileStatus(path).isDirectory() && fs.listStatus(path).length == 0;
+    } catch (IOException e) {
+      throw new UncheckedIOException("Cannot list " + uri, e);
+    }
+  }
+
   /**
    * Recursively lists data files below {@code dirUri} whose name ends with {@code suffix}, skipping
    * hidden files and files below hidden directories (any path component below {@code dirUri}

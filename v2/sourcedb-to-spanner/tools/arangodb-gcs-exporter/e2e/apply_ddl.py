@@ -14,7 +14,7 @@
 # the License.
 """Applies the exporter's generated Spanner DDL before a template import.
 
-Reads spanner-ddl-googlesql.sql (or -postgresql.sql) next to manifest.json and:
+Reads spanner-ddl-googlesql.sql (or -postgresql.sql) in the export root and:
   * database missing            -> creates it with the DDL;
   * database without any of the -> applies the DDL with an update;
     export's tables
@@ -93,7 +93,7 @@ def existing_columns(db, dialect):
 def main():
   p = argparse.ArgumentParser(description=__doc__,
                               formatter_class=argparse.RawDescriptionHelpFormatter)
-  p.add_argument("--export-dir", required=True, help="Directory with manifest.json (local or gs://)")
+  p.add_argument("--export-dir", required=True, help="Export root with the spanner-ddl-*.sql files (local or gs://)")
   p.add_argument("--spanner-endpoint", default=None, help="host:port of Omni / emulator")
   p.add_argument("--project", required=True)
   p.add_argument("--instance", required=True)

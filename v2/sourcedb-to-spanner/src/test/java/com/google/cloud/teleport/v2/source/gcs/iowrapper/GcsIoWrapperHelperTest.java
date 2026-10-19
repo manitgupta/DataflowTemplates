@@ -19,14 +19,13 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.google.cloud.teleport.v2.reader.io.schema.SourceTableSchema;
-import com.google.cloud.teleport.v2.source.gcs.GcsTestFixtures;
-import com.google.cloud.teleport.v2.source.gcs.manifest.GcsExportManifest;
-import com.google.cloud.teleport.v2.source.gcs.manifest.GcsTableManifest;
 import com.google.cloud.teleport.v2.spanner.migrations.exceptions.InvalidOptionsException;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.List;
+import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
-import org.junit.Before;
+import org.apache.avro.SchemaBuilder;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -35,74 +34,89 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class GcsIoWrapperHelperTest {
 
-  private GcsExportManifest manifest;
-
-  @Before
-  public void setUp() throws Exception {
-    manifest = GcsExportManifest.parse(GcsTestFixtures.resource("GcsSourceUT/manifest-valid.json"));
-  }
+  private static final String ROOT = "gs://b/exp";
+  private static final List<String> EXPORT_TABLES = List.of("knows", "user_profiles");
 
   @Test
   public void testEmptySelectionSelectsAll() {
-    assertThat(GcsIoWrapperHelper.selectTables(manifest, List.of()).keySet())
-        .containsExactly("user_profiles", "knows")
+    assertThat(GcsIoWrapperHelper.selectTables(ROOT, EXPORT_TABLES, List.of()).keySet())
+        .containsExactly("knows", "user_profiles")
         .inOrder();
-    assertThat(GcsIoWrapperHelper.selectTables(manifest, null)).hasSize(2);
+    assertThat(GcsIoWrapperHelper.selectTables(ROOT, EXPORT_TABLES, null)).hasSize(2);
   }
 
   @Test
   public void testCaseInsensitiveMatchKeyedByRequestedName() {
-    ImmutableMap<String, GcsTableManifest> selected =
-        GcsIoWrapperHelper.selectTables(manifest, List.of("KNOWS", "missing"));
-    assertThat(selected.keySet()).containsExactly("KNOWS");
-    assertThat(selected.get("KNOWS").getName()).isEqualTo("knows");
+    ImmutableMap<String, String> selected =
+        GcsIoWrapperHelper.selectTables(ROOT, EXPORT_TABLES, List.of("KNOWS", "missing"));
+    assertThat(selected).containsExactly("KNOWS", "knows");
   }
 
   @Test
   public void testUnknownOnlySelectsNothing() {
-    assertThat(GcsIoWrapperHelper.selectTables(manifest, List.of("nope"))).isEmpty();
+    assertThat(GcsIoWrapperHelper.selectTables(ROOT, EXPORT_TABLES, List.of("nope"))).isEmpty();
   }
 
   @Test
-  public void testAllManifestTablesMigratedPasses() {
+  public void testAllExportTablesMigratedPasses() {
     assertThat(
-            GcsIoWrapperHelper.checkAllManifestTablesMigrated(
-                manifest, List.of("KNOWS", "user_profiles", "other"), false))
+            GcsIoWrapperHelper.checkAllExportTablesMigrated(
+                ROOT, EXPORT_TABLES, List.of("KNOWS", "user_profiles", "other"), false))
         .isEmpty();
   }
 
   @Test
-  public void testUnmigratedManifestTableFailsUnlessTablesConfigured() {
+  public void testUnmigratedExportTableFailsUnlessTablesConfigured() {
     InvalidOptionsException e =
         assertThrows(
             InvalidOptionsException.class,
             () ->
-                GcsIoWrapperHelper.checkAllManifestTablesMigrated(
-                    manifest, List.of("user_profiles"), false));
+                GcsIoWrapperHelper.checkAllExportTablesMigrated(
+                    ROOT, EXPORT_TABLES, List.of("user_profiles"), false));
     assertThat(e).hasMessageThat().contains("[knows]");
     assertThat(
-            GcsIoWrapperHelper.checkAllManifestTablesMigrated(
-                manifest, List.of("user_profiles"), true))
+            GcsIoWrapperHelper.checkAllExportTablesMigrated(
+                ROOT, EXPORT_TABLES, List.of("user_profiles"), true))
         .containsExactly("knows");
   }
 
   @Test
-  public void testBuildTableSchema() {
-    GcsTableManifest knows = manifest.getTables().get(1);
-    SourceTableSchema schema = GcsIoWrapperHelper.buildTableSchema("Knows", knows);
+  public void testBuildTableSchemaKeepsPayloadSchemaFieldForField() {
+    Schema json = SchemaBuilder.builder().stringType();
+    json.addProp("logicalType", "json");
+    Schema ts = LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));
+    Schema payload =
+        SchemaBuilder.record("payload")
+            .fields()
+            .name("key")
+            .type()
+            .nullable()
+            .stringType()
+            .noDefault()
+            .name("n")
+            .type()
+            .nullable()
+            .longType()
+            .noDefault()
+            .name("at")
+            .type(Schema.createUnion(Schema.create(Schema.Type.NULL), ts))
+            .noDefault()
+            .name("doc")
+            .type(Schema.createUnion(Schema.create(Schema.Type.NULL), json))
+            .noDefault()
+            .endRecord();
+    SourceTableSchema schema =
+        GcsIoWrapperHelper.buildTableSchema(
+            "Knows", GcsExportTable.create("knows", payload, ImmutableList.of("key")));
     assertThat(schema.tableName()).isEqualTo("Knows");
     assertThat(schema.primaryKeyColumns()).containsExactly("key");
-    assertThat(schema.sourceColumnNameToSourceColumnType().keySet())
-        .containsExactly("key", "id", "rev", "from_id", "to_id", "doc")
-        .inOrder();
+    assertThat(schema.getAvroPayload()).isEqualTo(payload);
+    assertThat(schema.getAvroPayload().toString()).isEqualTo(payload.toString());
+    assertThat(schema.sourceColumnNameToSourceColumnType().get("key").getName())
+        .isEqualTo("STRING");
+    assertThat(schema.sourceColumnNameToSourceColumnType().get("n").getName()).isEqualTo("LONG");
+    assertThat(schema.sourceColumnNameToSourceColumnType().get("at").getName())
+        .isEqualTo("TIMESTAMP");
     assertThat(schema.sourceColumnNameToSourceColumnType().get("doc").getName()).isEqualTo("JSON");
-    Schema payload = schema.getAvroPayload();
-    assertThat(payload.getFields()).hasSize(6);
-    assertThat(payload.getField("doc").schema().getTypes().get(1).getProp("logicalType"))
-        .isEqualTo("json");
-    assertThat(GcsIoWrapperHelper.columnTypes(knows).get("from_id")).isEqualTo("STRING");
-    assertThat(GcsIoWrapperHelper.columnTypes(knows).keySet())
-        .containsExactly("key", "id", "rev", "from_id", "to_id", "doc")
-        .inOrder();
   }
 }

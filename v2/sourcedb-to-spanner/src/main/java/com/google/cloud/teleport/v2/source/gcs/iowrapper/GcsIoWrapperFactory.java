@@ -18,22 +18,21 @@ package com.google.cloud.teleport.v2.source.gcs.iowrapper;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.teleport.v2.reader.IoWrapperFactory;
 import com.google.cloud.teleport.v2.reader.io.IoWrapper;
-import com.google.cloud.teleport.v2.source.gcs.manifest.GcsExportManifest;
 import com.google.cloud.teleport.v2.spanner.migrations.exceptions.InvalidOptionsException;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.GcsSourceConfig;
 import com.google.cloud.teleport.v2.spanner.migrations.source.config.SourceConnectionConfig;
 import java.util.List;
 import org.apache.beam.sdk.transforms.Wait;
 
-/** {@link IoWrapperFactory} for the GCS file export source. */
+/** {@link IoWrapperFactory} for the GCS (bulk migration Avro format) source. */
 @AutoValue
 public abstract class GcsIoWrapperFactory implements IoWrapperFactory {
 
-  /** URI of the export manifest. */
-  public abstract String manifestPath();
+  /** URI of the root directory of the export, without trailing {@code /}. */
+  public abstract String rootPath();
 
-  public static GcsIoWrapperFactory create(String manifestPath) {
-    return new AutoValue_GcsIoWrapperFactory(manifestPath);
+  public static GcsIoWrapperFactory create(String rootPath) {
+    return new AutoValue_GcsIoWrapperFactory(new GcsSourceConfig(rootPath).getRootPath());
   }
 
   /**
@@ -46,27 +45,30 @@ public abstract class GcsIoWrapperFactory implements IoWrapperFactory {
       throw new IllegalArgumentException(
           "Unsupported source connection config type for GCS source: " + config);
     }
-    return create(((GcsSourceConfig) config).getManifestPath());
+    return create(((GcsSourceConfig) config).getRootPath());
   }
 
   /** Create an {@link IoWrapper} instance for a list of source tables. */
   @Override
   public IoWrapper getIOWrapper(List<String> sourceTables, Wait.OnSignal<?> waitOnSignal) {
-    return new GcsIoWrapper(manifestPath(), sourceTables, waitOnSignal);
+    return new GcsIoWrapper(rootPath(), sourceTables, waitOnSignal);
   }
 
   /**
-   * Warns about every manifest table that will not be migrated (typically: no matching Spanner
-   * table) and fails unless the user restricted the table set with the {@code tables} option, since
-   * an unmigrated export table is silent data loss.
+   * Warns about every export table that will not be migrated (typically: no matching Spanner table)
+   * and fails unless the user restricted the table set with the {@code tables} option, since an
+   * unmigrated export table is silent data loss.
    *
-   * @throws InvalidOptionsException if manifest tables are not migrated and {@code tables} is not
+   * @throws InvalidOptionsException if export tables are not migrated and {@code tables} is not
    *     set.
    */
   @Override
   public void validateSelectedSourceTables(
       List<String> selectedSourceTables, boolean tablesConfigured) {
-    GcsIoWrapperHelper.checkAllManifestTablesMigrated(
-        GcsExportManifest.read(manifestPath()), selectedSourceTables, tablesConfigured);
+    GcsIoWrapperHelper.checkAllExportTablesMigrated(
+        rootPath(),
+        GcsExportDiscovery.listTableFiles(rootPath()).keySet(),
+        selectedSourceTables,
+        tablesConfigured);
   }
 }

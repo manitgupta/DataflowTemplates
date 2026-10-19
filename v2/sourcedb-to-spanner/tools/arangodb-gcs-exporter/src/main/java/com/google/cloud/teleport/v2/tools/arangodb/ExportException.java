@@ -18,7 +18,7 @@ package com.google.cloud.teleport.v2.tools.arangodb;
 /**
  * Signals that an export ran but its result cannot be trusted (source changed during the export, or
  * the exported row count differs from the source count). The process exits with code 2 and no
- * manifest is written.
+ * summary is written.
  */
 public final class ExportException extends Exception {
 

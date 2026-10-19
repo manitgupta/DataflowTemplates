@@ -15,7 +15,7 @@
  */
 package com.google.cloud.teleport.v2.tools.arangodb;
 
-/** ArangoDB collection type. Written to the manifest as {@code tables[].collectionType}. */
+/** ArangoDB collection type. Written to the summary as {@code tables[].collectionType}. */
 public enum CollectionKind {
   DOCUMENT,
   EDGE

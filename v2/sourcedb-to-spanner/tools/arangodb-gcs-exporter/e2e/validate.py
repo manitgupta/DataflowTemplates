@@ -14,10 +14,15 @@
 # the License.
 """Validates an ArangoDB -> GCS -> Spanner migration end to end.
 
-Checks, per manifest table (a table missing in Spanner FAILs unless --allow-missing-tables;
+The export is a SourceDB to Spanner bulk GCS export (<table>/<md5>-NNNNN-of-MMMMM.avro); the
+counts come from its summary arangodb-export.json (written last by the exporter).
+
+Checks, per summary table (a table missing in Spanner FAILs unless --allow-missing-tables;
 --tables restricts the checked set; at least one table must pass the count check):
+  0. layout: files[] are exactly <table>/<md5>-00000-of-MMMMM.avro .. -(MMMMM-1)-of-MMMMM.avro
+     with one md5 per table, and the table directory holds nothing else; no _staging left
   1. sum(files[].rows) == rowCount, and rowCount == ArangoDB count (if the source is quiet)
-  2. Spanner COUNT(*) + severe DLQ records for the table == manifest rowCount
+  2. Spanner COUNT(*) + severe DLQ records for the table == summary rowCount
   3. --sample random keys (index-only RAND() sample in ArangoDB): the Spanner `doc`
      equals the ArangoDB document (canonical JSON: sorted keys, numbers as Decimal).
      Known Spanner JSON normalisation differences (-0.0, integers beyond 2^53, float
@@ -38,6 +43,7 @@ import decimal
 import glob
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -47,6 +53,9 @@ from decimal import Decimal
 decimal.getcontext().prec = 400
 
 RESULTS = {"PASS": 0, "WARN": 0, "FAIL": 0}
+
+SUMMARY_FILE = "arangodb-export.json"
+BULK_FILE = re.compile(r"^([0-9a-f]{32})-(\d{5,})-of-(\d{5,})\.avro$")
 
 
 def report(level, msg):
@@ -64,6 +73,61 @@ def read_text(path):
     path = path[len("file://"):]
   with open(path, encoding="utf-8") as f:
     return f.read()
+
+
+def list_names(path):
+  """Names of all objects/files directly below directory `path` (hidden ones included)."""
+  path = path.rstrip("/")
+  if path.startswith("gs://"):
+    from google.cloud import storage  # pylint: disable=g-import-not-at-top
+    bucket, _, prefix = path[len("gs://"):].partition("/")
+    prefix += "/"
+    names = set()
+    for blob in storage.Client().list_blobs(bucket, prefix=prefix):
+      rest = blob.name[len(prefix):]
+      if rest:
+        names.add(rest.split("/", 1)[0])
+    return sorted(names)
+  if path.startswith("file://"):
+    path = path[len("file://"):]
+  return sorted(os.listdir(path)) if os.path.isdir(path) else []
+
+
+def check_layout(export_dir, table):
+  """Checks the bulk GCS file layout of one summary table; returns True when it is right."""
+  name = table["name"]
+  files = [f["path"] for f in table.get("files", [])]
+  ok = True
+  md5s, indexes, totals = set(), [], set()
+  for path in files:
+    directory, _, base = path.partition("/")
+    m = BULK_FILE.match(base)
+    if directory != name or not m:
+      report("FAIL", f"{name}: file {path} does not follow <table>/<md5>-NNNNN-of-MMMMM.avro")
+      ok = False
+      continue
+    md5s.add(m.group(1))
+    indexes.append(int(m.group(2)))
+    totals.add(int(m.group(3)))
+  if not ok:
+    return False
+  if len(md5s) > 1:
+    report("FAIL", f"{name}: files have {len(md5s)} different schema md5 prefixes")
+    ok = False
+  if files and (totals != {len(files)} or sorted(indexes) != list(range(len(files)))):
+    report("FAIL", f"{name}: file indexes are not 0..{len(files) - 1} of {len(files)}")
+    ok = False
+  on_disk = list_names(f"{export_dir}/{name}")
+  expected = sorted(p.partition("/")[2] for p in files)
+  if on_disk != expected:
+    extra = sorted(set(on_disk) - set(expected))[:5]
+    missing = sorted(set(expected) - set(on_disk))[:5]
+    report("FAIL", f"{name}: table directory differs from the summary "
+           f"(extra {extra}, missing {missing})")
+    ok = False
+  if ok:
+    report("PASS", f"{name}: {len(files)} bulk files with schema md5 {next(iter(md5s), '-')}")
+  return ok
 
 
 # ---------------------------------------------------------------------------- arangodb
@@ -241,11 +305,12 @@ def q(dialect, ident):
 def main():
   p = argparse.ArgumentParser(description=__doc__,
                               formatter_class=argparse.RawDescriptionHelpFormatter)
-  p.add_argument("--export-dir", required=True, help="Directory with manifest.json (local or gs://)")
+  p.add_argument("--export-dir", required=True,
+                 help=f"Export root with {SUMMARY_FILE} (local or gs://)")
   p.add_argument("--arango-url", default="http://10.30.1.10:8529")
   p.add_argument("--arango-user", default="root")
   p.add_argument("--arango-password", default=os.environ.get("ARANGO_PASSWORD", ""))
-  p.add_argument("--arango-database", default=None, help="Default: manifest source.database")
+  p.add_argument("--arango-database", default=None, help="Default: summary source.database")
   p.add_argument("--spanner-endpoint", default=None, help="host:port of Omni / emulator")
   p.add_argument("--project", required=True)
   p.add_argument("--instance", required=True)
@@ -253,20 +318,22 @@ def main():
   p.add_argument("--dialect", choices=["googlesql", "postgresql"], default="googlesql")
   p.add_argument("--sample", type=int, default=200)
   p.add_argument("--dlq-dir", default=None, help="Template outputDirectory/dlq (local)")
-  p.add_argument("--tables", default=None, help="Comma-separated subset of manifest tables")
+  p.add_argument("--tables", default=None, help="Comma-separated subset of summary tables")
   p.add_argument("--allow-missing-tables", action="store_true",
-                 help="WARN instead of FAIL for manifest tables not queryable in Spanner")
+                 help="WARN instead of FAIL for summary tables not queryable in Spanner")
   args = p.parse_args()
 
   export_dir = args.export_dir.rstrip("/")
-  manifest = json.loads(read_text(export_dir + "/manifest.json"))
-  if manifest.get("formatVersion") != 1:
-    report("FAIL", f"unsupported formatVersion {manifest.get('formatVersion')}")
+  summary = json.loads(read_text(f"{export_dir}/{SUMMARY_FILE}"))
+  if summary.get("formatVersion") != 2:
+    report("FAIL", f"unsupported {SUMMARY_FILE} formatVersion {summary.get('formatVersion')}")
     return 1
-  source = manifest.get("source", {})
+  if "_staging" in list_names(export_dir):
+    report("FAIL", "_staging directory left in the export root")
+  source = summary.get("source", {})
   consistent = source.get("consistent", True)
   if not consistent:
-    report("WARN", "manifest source.consistent=false (source changed during export)")
+    report("WARN", "summary source.consistent=false (source changed during export)")
   arango = Arango(args.arango_url, args.arango_user, args.arango_password,
                   args.arango_database or source.get("database", "_system"))
   db = spanner_database(args)
@@ -276,11 +343,12 @@ def main():
   wanted = set(args.tables.split(",")) if args.tables else None
   count_passes = 0
 
-  for t in manifest["tables"]:
+  for t in summary["tables"]:
     name, coll = t["name"], t.get("sourceName", t["name"])
     if wanted and name not in wanted:
       continue
     print(f"--- table {name} (collection {coll}, {t.get('collectionType')})")
+    check_layout(export_dir, t)
     files_rows = sum(f.get("rows", 0) for f in t.get("files", []))
     row_count = t.get("rowCount")
     if row_count is not None and files_rows != row_count:
@@ -288,10 +356,10 @@ def main():
     arango_count = arango.count(coll)
     if row_count is not None:
       if arango_count == row_count:
-        report("PASS", f"{name}: ArangoDB count {arango_count} == manifest rowCount")
+        report("PASS", f"{name}: ArangoDB count {arango_count} == summary rowCount")
       else:
         report("FAIL" if consistent else "WARN",
-               f"{name}: ArangoDB count {arango_count} != manifest rowCount {row_count}")
+               f"{name}: ArangoDB count {arango_count} != summary rowCount {row_count}")
 
     try:
       with db.snapshot() as snap:

@@ -47,8 +47,8 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /**
- * End-to-end test of the GCS source up to Spanner mutations: export files -> {@link GcsIoWrapper}
- * -> {@link SourceRowToMutationDoFn} with an {@link IdentityMapper}.
+ * End-to-end test of the GCS source up to Spanner mutations: bulk-format Avro export -> {@link
+ * GcsIoWrapper} -> {@link SourceRowToMutationDoFn} with an {@link IdentityMapper}.
  */
 @RunWith(JUnit4.class)
 public class GcsSourceToMutationTest {
@@ -141,8 +141,8 @@ public class GcsSourceToMutationTest {
 
   @Test
   public void testExportToMutations() throws Exception {
-    String manifest = GcsTestFixtures.writeExport(tmp.getRoot(), true, 3L);
-    ReaderImpl reader = ReaderImpl.of(new GcsIoWrapper(manifest, List.of(), null));
+    String root = GcsTestFixtures.writeExport(tmp.getRoot());
+    ReaderImpl reader = ReaderImpl.of(new GcsIoWrapper(root, List.of(), null));
     ReaderTransform readerTransform = reader.getReaderTransform();
 
     PCollectionTuple read = pipeline.apply("Read", readerTransform.readTransform());

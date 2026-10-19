@@ -38,11 +38,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Spark job that exports ArangoDB collections to {@code <output>/<exportId>/} as Avro files, a
- * {@code manifest.json} (written last, the commit marker) and suggested Spanner DDL.
+ * Spark job that exports ArangoDB collections to {@code <output>/<exportId>/} in the SourceDB to
+ * Spanner bulk GCS format ({@code <table>/<md5Hex(schema)>-NNNNN-of-MMMMM.avro}), plus suggested
+ * Spanner DDL and an {@code arangodb-export.json} summary (written last, the completion marker).
  *
  * <p>Exit codes: 0 success, 1 invalid options, 2 inconsistent export (source changed or counts
- * differ; no manifest written), 3 any other failure.
+ * differ; no summary written), 3 any other failure.
  */
 public final class ArangoDbToGcsExporter {
 
@@ -66,7 +67,7 @@ public final class ArangoDbToGcsExporter {
       LOG.error("Invalid options or input: {}", e.getMessage(), e);
       code = 1;
     } catch (ExportException e) {
-      LOG.error("Export is not consistent; no manifest was written: {}", e.getMessage());
+      LOG.error("Export is not consistent; no summary was written: {}", e.getMessage());
       code = 2;
     } catch (Throwable t) {
       LOG.error("Export failed", t);
@@ -80,13 +81,13 @@ public final class ArangoDbToGcsExporter {
   }
 
   /**
-   * Runs the export and returns the written manifest, or {@code null} with {@code --planOnly}.
+   * Runs the export and returns the written summary, or {@code null} with {@code --planOnly}.
    *
    * @throws ExportException if the source changed during the export or counts differ (and {@code
    *     --allowLiveSource} is false)
    * @throws IllegalArgumentException on bad options (unknown collections, existing export, ...)
    */
-  public static ExportManifest run(ExporterOptions opts, SparkSession spark) throws Exception {
+  public static ExportSummary run(ExporterOptions opts, SparkSession spark) throws Exception {
     Configuration conf = spark.sparkContext().hadoopConfiguration();
     String password = PasswordResolver.resolve(opts, conf);
     try (ArangoMetadataClient client = new ArangoMetadataClient(opts, password)) {
@@ -94,7 +95,7 @@ public final class ArangoDbToGcsExporter {
     }
   }
 
-  static ExportManifest run(
+  static ExportSummary run(
       ExporterOptions opts,
       SparkSession spark,
       ArangoMetadataClient client,
@@ -166,22 +167,24 @@ public final class ArangoDbToGcsExporter {
       return null;
     }
 
-    ExportManifest manifest = new ExportManifest();
-    manifest.exportId = opts.exportId();
-    manifest.producer = producer(spark.version());
-    manifest.source = new ExportManifest.Source();
-    manifest.source.system = "arangodb";
-    manifest.source.database = opts.database();
-    manifest.source.serverVersion = serverVersion;
-    manifest.source.exportStartedAt = startedAt.toString();
-    manifest.source.exportFinishedAt = finishedAt.toString();
+    CollectionExporter.deleteStagingRoot(exportRoot, conf);
+
+    ExportSummary summary = new ExportSummary();
+    summary.exportId = opts.exportId();
+    summary.producer = producer(spark.version());
+    summary.source = new ExportSummary.Source();
+    summary.source.system = "arangodb";
+    summary.source.database = opts.database();
+    summary.source.serverVersion = serverVersion;
+    summary.source.exportStartedAt = startedAt.toString();
+    summary.source.exportFinishedAt = finishedAt.toString();
     List<CollectionPlan> plans = new ArrayList<>();
     for (CollectionResult r : results) {
-      manifest.tables.add(r.toTable());
+      summary.tables.add(r.toTable());
       plans.add(r.plan);
     }
 
-    List<String> problems = consistencyProblems(manifest.tables);
+    List<String> problems = consistencyProblems(summary.tables);
     if (!problems.isEmpty()) {
       if (!opts.allowLiveSource()) {
         throw new ExportException(
@@ -190,9 +193,9 @@ public final class ArangoDbToGcsExporter {
                 + " --allowLiveSource=true to accept an inconsistent export.");
       }
       LOG.warn("Source changed during export (allowed by --allowLiveSource): {}", problems);
-      manifest.source.consistent = false;
+      summary.source.consistent = false;
     } else {
-      manifest.source.consistent = true;
+      summary.source.consistent = true;
     }
 
     HadoopFiles.writeString(
@@ -205,9 +208,9 @@ public final class ArangoDbToGcsExporter {
         SpannerDdlGenerator.postgreSql(plans),
         conf,
         true);
-    ManifestWriter.write(manifest, exportRoot, conf);
+    ExportSummaryWriter.write(summary, exportRoot, conf);
 
-    for (ExportManifest.Table t : manifest.tables) {
+    for (ExportSummary.Table t : summary.tables) {
       LOG.info(
           "Table {} (collection {}, {}): {} rows in {} files, max doc {} bytes, {} oversized",
           t.name,
@@ -219,24 +222,30 @@ public final class ArangoDbToGcsExporter {
           t.stats.oversizedKeys.size());
     }
     LOG.info(
-        "Export complete: {}/{} (consistent={})",
+        "Export complete: {} (summary {}, consistent={})",
         exportRoot,
-        ManifestWriter.MANIFEST_FILE,
-        manifest.source.consistent);
-    return manifest;
+        ExportSummaryWriter.SUMMARY_FILE,
+        summary.source.consistent);
+    return summary;
   }
 
   /**
-   * Refuses to write into an export root that already has a manifest or data from an earlier run.
+   * Refuses to write into an export root that already has a summary or any data from an earlier
+   * run: the bulk layout puts table directories directly below the root, so the root must be
+   * missing or empty.
    *
-   * @throws IllegalArgumentException if {@code manifest.json} or {@code tables/} exists
+   * @throws IllegalArgumentException if {@code arangodb-export.json} or any other entry exists
    */
   static void checkNoExistingExport(String exportRoot, Configuration conf) {
-    if (ManifestWriter.exists(exportRoot, conf)) {
+    if (ExportSummaryWriter.exists(exportRoot, conf)) {
       throw new IllegalArgumentException(
-          "Export " + exportRoot + " already has a manifest.json; choose a new --exportId");
+          "Export "
+              + exportRoot
+              + " already has an "
+              + ExportSummaryWriter.SUMMARY_FILE
+              + "; choose a new --exportId");
     }
-    if (HadoopFiles.exists(exportRoot + "/tables", conf)) {
+    if (!HadoopFiles.isEmptyOrMissing(exportRoot, conf)) {
       throw new IllegalArgumentException(
           "Export "
               + exportRoot
@@ -362,9 +371,9 @@ public final class ArangoDbToGcsExporter {
   }
 
   /** D4: per table, the count and revision must not change and rows must equal countBefore. */
-  static List<String> consistencyProblems(List<ExportManifest.Table> tables) {
+  static List<String> consistencyProblems(List<ExportSummary.Table> tables) {
     List<String> problems = new ArrayList<>();
-    for (ExportManifest.Table t : tables) {
+    for (ExportSummary.Table t : tables) {
       if (!t.sourceCountBefore.equals(t.sourceCountAfter)) {
         problems.add(
             t.sourceName
@@ -450,14 +459,14 @@ public final class ArangoDbToGcsExporter {
       this.readback = readback;
     }
 
-    ExportManifest.Table toTable() {
-      ExportManifest.Table t = new ExportManifest.Table();
+    ExportSummary.Table toTable() {
+      ExportSummary.Table t = new ExportSummary.Table();
       t.name = plan.tableName();
       t.sourceName = plan.sourceName();
       t.collectionType = plan.kind().name();
       t.primaryKey = new ArrayList<>(Collections.singletonList("key"));
-      for (ExportManifest.Column c : plan.columns()) {
-        t.columns.add(new ExportManifest.Column(c.name, c.type, c.nullable, c.sourceName));
+      for (ExportSummary.Column c : plan.columns()) {
+        t.columns.add(new ExportSummary.Column(c.name, c.type, c.nullable, c.sourceName));
       }
       t.rowCount = readback.rowCount;
       t.sourceCountBefore = countBefore;
@@ -465,7 +474,7 @@ public final class ArangoDbToGcsExporter {
       t.sourceRevisionBefore = revisionBefore;
       t.sourceRevisionAfter = revisionAfter;
       t.files = new ArrayList<>(readback.files);
-      t.stats = new ExportManifest.Stats(readback.maxDocBytes, readback.oversizedKeys);
+      t.stats = new ExportSummary.Stats(readback.maxDocBytes, readback.oversizedKeys);
       return t;
     }
   }

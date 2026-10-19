@@ -264,8 +264,7 @@ public class SourceDbToSpannerTest {
     options.setSourceDbDialect(SourceDbToSpannerOptions.GCS_SOURCE_DIALECT);
 
     // Valid config.
-    SourceDbToSpanner.validateOptions(
-        options, GcsSourceConfig.fromUri("gs://my-bucket/export/manifest.json"));
+    SourceDbToSpanner.validateOptions(options, GcsSourceConfig.fromUri("gs://my-bucket/export/"));
 
     // Wrong config type.
     IllegalArgumentException exception =
@@ -276,8 +275,7 @@ public class SourceDbToSpannerTest {
 
     // gcsOutputDirectory only warns.
     options.setGcsOutputDirectory("gs://my-bucket/avro");
-    SourceDbToSpanner.validateOptions(
-        options, GcsSourceConfig.fromUri("gs://my-bucket/export/manifest.json"));
+    SourceDbToSpanner.validateOptions(options, GcsSourceConfig.fromUri("gs://my-bucket/export/"));
   }
 
   @Test

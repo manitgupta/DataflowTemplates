@@ -106,6 +106,24 @@ public abstract class SourceTableSchema implements Serializable {
       return this;
     }
 
+    /**
+     * Adds a payload column whose Avro field schema is given explicitly instead of being derived
+     * from {@code sourceColumnType} by the unified type mapper. Used by sources whose rows already
+     * carry an Avro schema, e.g. the GCS source reading the bulk migration Avro format, so that the
+     * payload schema matches the file's payload schema field for field.
+     *
+     * @param sourceColumnName name of the column (and of the payload field).
+     * @param sourceColumnType source type of the column, informational.
+     * @param avroFieldSchema Avro schema of the payload field.
+     */
+    public final Builder addSourceColumnWithAvroSchema(
+        String sourceColumnName, SourceColumnType sourceColumnType, Schema avroFieldSchema) {
+      this.sourceColumnNameToSourceColumnTypeBuilder().put(sourceColumnName, sourceColumnType);
+      this.payloadFieldAssembler =
+          this.payloadFieldAssembler.name(sourceColumnName).type(avroFieldSchema).noDefault();
+      return this;
+    }
+
     public Builder() {
       /* Note: DataStream `read_timestamp` is encoded as `timeMillis`. We use `timeMirco` since:
        * 1. To achieve 1 GBPs performance (potentially on a single table), we will be writing 1 to 10 million records per second.

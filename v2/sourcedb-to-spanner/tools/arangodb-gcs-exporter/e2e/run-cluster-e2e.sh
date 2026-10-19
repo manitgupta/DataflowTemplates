@@ -122,9 +122,9 @@ submit "${COMMON[@]}" --exportId="${EXPORT_ID}" \
   --verifyPartitions=true
 
 if [[ "${OUTPUT}" == file://* ]]; then
-  cat "${OUTPUT#file://}/${EXPORT_ID}/manifest.json"
+  cat "${OUTPUT#file://}/${EXPORT_ID}/arangodb-export.json"
 else
-  gcloud storage cat "${OUTPUT%/}/${EXPORT_ID}/manifest.json"
+  gcloud storage cat "${OUTPUT%/}/${EXPORT_ID}/arangodb-export.json"
 fi
 
 if [[ -n "${SPANNER_PROJECT:-}" ]]; then
@@ -147,7 +147,7 @@ if [[ -n "${SPANNER_PROJECT:-}" ]]; then
     && mvn -B -pl v2/sourcedb-to-spanner exec:java -Dexec.classpathScope=test \
       -Dexec.mainClass=com.google.cloud.teleport.v2.templates.SourceDbToSpanner \
       -Dexec.args="--runner=DirectRunner --sourceDbDialect=GCS \
-        --sourceConfigURL=${OUTPUT%/}/${EXPORT_ID}/manifest.json \
+        --sourceConfigURL=${OUTPUT%/}/${EXPORT_ID}/ \
         --projectId=${SPANNER_PROJECT} --instanceId=${SPANNER_INSTANCE} \
         --databaseId=${SPANNER_DATABASE} ${OMNI_ARGS[*]:-} --outputDirectory=${TEMPLATE_OUT}")
   log "4c. Validate"
