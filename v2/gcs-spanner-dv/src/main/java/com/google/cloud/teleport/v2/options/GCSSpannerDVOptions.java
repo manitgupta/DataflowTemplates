@@ -299,4 +299,18 @@ public interface GCSSpannerDVOptions extends PipelineOptions {
   Boolean getSpannerOmniPartitionedReads();
 
   void setSpannerOmniPartitionedReads(Boolean value);
+
+  @TemplateParameter.Integer(
+      order = 22,
+      optional = true,
+      groupName = "Target",
+      description = "Spanner Omni read deadline in minutes",
+      helpText =
+          "Deadline for each streamed query (one partition or one table) against Spanner Omni. A"
+              + " stream that exceeds it fails and its bundle is retried. 0 means no deadline. Only"
+              + " used when `spannerOmniEndpoint` is set. Defaults to: 0.")
+  @Default.Integer(0)
+  Integer getSpannerOmniReadTimeoutMinutes();
+
+  void setSpannerOmniReadTimeoutMinutes(Integer value);
 }

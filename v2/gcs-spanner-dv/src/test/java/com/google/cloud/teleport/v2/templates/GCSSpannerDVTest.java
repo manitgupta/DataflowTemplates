@@ -61,6 +61,19 @@ public class GCSSpannerDVTest {
   }
 
   @Test
+  public void testCreateSpannerConfigForSpannerOmniReadTimeout() {
+    options.setSpannerOmniEndpoint("http://10.0.0.5:15000");
+    org.junit.Assert.assertNull(
+        GCSSpannerDV.createSpannerConfig(options).getExecuteStreamingSqlRetrySettings());
+    options.setSpannerOmniReadTimeoutMinutes(15);
+    org.apache.beam.sdk.io.gcp.spanner.SpannerConfig config =
+        GCSSpannerDV.createSpannerConfig(options);
+    org.junit.Assert.assertEquals(
+        java.time.Duration.ofMinutes(15),
+        config.getExecuteStreamingSqlRetrySettings().getTotalTimeoutDuration());
+  }
+
+  @Test
   public void testCreateSpannerConfigForSpannerOmniTls() {
     options.setSpannerOmniEndpoint("https://omni:15000");
     options.setSpannerOmniPlainText(false);

@@ -18,6 +18,7 @@ package com.google.cloud.teleport.v2.templates;
 import static com.google.cloud.teleport.v2.constants.GCSSpannerDVConstants.SOURCE_TAG;
 import static com.google.cloud.teleport.v2.constants.GCSSpannerDVConstants.SPANNER_TAG;
 
+import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
@@ -34,6 +35,7 @@ import com.google.cloud.teleport.v2.transforms.SourceReaderTransform;
 import com.google.cloud.teleport.v2.transforms.SpannerInformationSchemaProcessorTransform;
 import com.google.cloud.teleport.v2.transforms.SpannerReaderTransform;
 import com.google.common.annotations.VisibleForTesting;
+import java.time.Duration;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
@@ -158,6 +160,19 @@ public class GCSSpannerDV {
               .withDatabaseId(ValueProvider.StaticValueProvider.of(options.getDatabaseId()))
               .withExperimentalHost(ValueProvider.StaticValueProvider.of(omniEndpoint.trim()))
               .withRpcPriority(ValueProvider.StaticValueProvider.of(options.getSpannerPriority()));
+      Integer readTimeoutMinutes = options.getSpannerOmniReadTimeoutMinutes();
+      if (readTimeoutMinutes != null && readTimeoutMinutes > 0) {
+        // Deadline per streamed (partition) query: a stream that stops returning rows fails with
+        // DEADLINE_EXCEEDED and its bundle is retried instead of hanging forever.
+        Duration timeout = Duration.ofMinutes(readTimeoutMinutes);
+        omniConfig =
+            omniConfig.withExecuteStreamingSqlRetrySettings(
+                RetrySettings.newBuilder()
+                    .setInitialRpcTimeoutDuration(timeout)
+                    .setMaxRpcTimeoutDuration(timeout)
+                    .setTotalTimeoutDuration(timeout)
+                    .build());
+      }
       return Boolean.TRUE.equals(options.getSpannerOmniPlainText())
           ? omniConfig.withUsingPlainTextChannel(true)
           : omniConfig;
