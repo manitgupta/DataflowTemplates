@@ -285,4 +285,18 @@ public interface GCSSpannerDVOptions extends PipelineOptions {
   Boolean getSpannerOmniPlainText();
 
   void setSpannerOmniPlainText(Boolean value);
+
+  @TemplateParameter.Boolean(
+      order = 21,
+      optional = true,
+      groupName = "Target",
+      description = "Use partitioned reads against Spanner Omni",
+      helpText =
+          "Read Spanner Omni tables with partitioned (batch) reads instead of one streaming query"
+              + " per table. Recommended for multi-server deployments and large tables. Only used"
+              + " when `spannerOmniEndpoint` is set. Defaults to: false.")
+  @Default.Boolean(false)
+  Boolean getSpannerOmniPartitionedReads();
+
+  void setSpannerOmniPartitionedReads(Boolean value);
 }

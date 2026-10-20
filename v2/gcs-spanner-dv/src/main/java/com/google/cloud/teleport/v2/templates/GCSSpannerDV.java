@@ -117,7 +117,12 @@ public class GCSSpannerDV {
     PCollection<ComparisonRecord> spannerRecords =
         pipeline.apply(
             "ReadSpannerRecords",
-            new SpannerReaderTransform(spannerConfig, ddlView, schemaMapperProvider, tableConfig));
+            new SpannerReaderTransform(
+                spannerConfig,
+                ddlView,
+                schemaMapperProvider,
+                tableConfig,
+                Boolean.TRUE.equals(options.getSpannerOmniPartitionedReads())));
 
     PCollectionTuple inputs =
         PCollectionTuple.of(SOURCE_TAG, sourceRecords).and(SPANNER_TAG, spannerRecords);

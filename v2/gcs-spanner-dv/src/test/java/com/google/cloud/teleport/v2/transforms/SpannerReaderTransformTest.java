@@ -423,5 +423,8 @@ public class SpannerReaderTransformTest implements Serializable {
     SpannerConfig omni =
         cloud.withExperimentalHost("http://10.0.0.5:15000").withUsingPlainTextChannel(true);
     assertEquals(false, SpannerReaderTransform.usePartitionedReads(omni));
+    assertEquals(false, SpannerReaderTransform.usePartitionedReads(omni, false));
+    assertTrue(SpannerReaderTransform.usePartitionedReads(omni, true));
+    assertTrue(SpannerReaderTransform.usePartitionedReads(cloud, false));
   }
 }

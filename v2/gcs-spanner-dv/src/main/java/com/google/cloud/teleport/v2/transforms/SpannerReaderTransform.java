@@ -45,16 +45,27 @@ public class SpannerReaderTransform
   private final PCollectionView<Ddl> ddlView;
   private final SerializableFunction<Ddl, ISchemaMapper> schemaMapperProvider;
   private final TableConfiguration tableConfig;
+  private final boolean omniPartitionedReads;
 
   public SpannerReaderTransform(
       SpannerConfig spannerConfig,
       PCollectionView<Ddl> ddlView,
       SerializableFunction<Ddl, ISchemaMapper> schemaMapperProvider,
       TableConfiguration tableConfig) {
+    this(spannerConfig, ddlView, schemaMapperProvider, tableConfig, false);
+  }
+
+  public SpannerReaderTransform(
+      SpannerConfig spannerConfig,
+      PCollectionView<Ddl> ddlView,
+      SerializableFunction<Ddl, ISchemaMapper> schemaMapperProvider,
+      TableConfiguration tableConfig,
+      boolean omniPartitionedReads) {
     this.spannerConfig = spannerConfig;
     this.ddlView = ddlView;
     this.schemaMapperProvider = schemaMapperProvider;
     this.tableConfig = tableConfig;
+    this.omniPartitionedReads = omniPartitionedReads;
   }
 
   @Override
@@ -82,14 +93,20 @@ public class SpannerReaderTransform
         // we read from a snapshot ~15s ago to avoid locking, 15s is okay because
         // we expect batch validation to start >> 15s after bulk migration is finished.
         .withTimestampBound(TimestampBound.ofExactStaleness(15, TimeUnit.SECONDS))
-        .withBatching(usePartitionedReads(spannerConfig));
+        .withBatching(usePartitionedReads(spannerConfig, omniPartitionedReads));
   }
 
   /**
    * Partitioned (batch) reads for Cloud Spanner. Against Spanner Omni (experimental host) some
-   * partition streams of large tables never returned on a single-server deployment, so each table
-   * is read with one streaming query instead.
+   * partition streams of large tables never returned on a single-server deployment, so by default
+   * each table is read with one streaming query instead; {@code omniPartitionedReads} opts back
+   * into partitioned reads (multi-server deployments, large tables).
    */
+  @VisibleForTesting
+  static boolean usePartitionedReads(SpannerConfig spannerConfig, boolean omniPartitionedReads) {
+    return omniPartitionedReads || usePartitionedReads(spannerConfig);
+  }
+
   @VisibleForTesting
   static boolean usePartitionedReads(SpannerConfig spannerConfig) {
     return spannerConfig.getExperimentalHost() == null
