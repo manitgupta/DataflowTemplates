@@ -18,6 +18,7 @@ package com.google.cloud.teleport.v2.templates.source.mysql;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.api.services.datastream.v1.model.SourceConfig;
 import com.google.cloud.spanner.Dialect;
+import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.TransactionContext;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.exceptions.ChangeEventConvertorException;
@@ -29,6 +30,7 @@ import com.google.cloud.teleport.v2.templates.datastream.ChangeEventSequence;
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventSequenceCreationException;
 import com.google.cloud.teleport.v2.templates.source.IDsToSpSourceConnector;
 import com.google.common.collect.ImmutableMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -111,5 +113,19 @@ public class MySqlDsToSpSourceConnector implements IDsToSpSourceConnector {
       throws ChangeEventSequenceCreationException, InvalidChangeEventException {
     return MySqlChangeEventSequence.createFromShadowTable(
         transactionContext, changeEventContext, shadowDdl, useSqlStatements);
+  }
+
+  @Override
+  public List<String> getShadowSequenceColumns(ChangeEventContext changeEventContext) {
+    return List.of(
+        changeEventContext.getSafeShadowColumn(MYSQL_TIMESTAMP_KEY),
+        changeEventContext.getSafeShadowColumn(MYSQL_LOGFILE_KEY),
+        changeEventContext.getSafeShadowColumn(MYSQL_LOGPOSITION_KEY));
+  }
+
+  @Override
+  public ChangeEventSequence createChangeEventSequenceFromShadowRow(
+      ChangeEventContext changeEventContext, Struct shadowRow) {
+    return MySqlChangeEventSequence.createFromShadowRow(changeEventContext, shadowRow);
   }
 }

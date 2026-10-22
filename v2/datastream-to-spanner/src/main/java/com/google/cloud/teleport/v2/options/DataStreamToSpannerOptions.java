@@ -467,4 +467,154 @@ public interface DataStreamToSpannerOptions
   String getSkipDirectoryName();
 
   void setSkipDirectoryName(String value);
+
+  @TemplateParameter.Enum(
+      order = 37,
+      groupName = "Source",
+      enumOptions = {@TemplateEnumOption("datastream"), @TemplateEnumOption("debezium")},
+      optional = true,
+      description = "Change data capture source",
+      helpText =
+          "Where change events come from. `datastream` (default) reads Datastream output from Cloud"
+              + " Storage. `debezium` reads Debezium change events (Kafka Connect JSON converter) from"
+              + " Apache Kafka topics, so no Datastream stream is needed and the pipeline can run on"
+              + " any Beam runner. Debezium support is currently limited to MySQL sources.")
+  @Default.String("datastream")
+  String getCdcSource();
+
+  void setCdcSource(String value);
+
+  @TemplateParameter.Text(
+      order = 38,
+      groupName = "Source",
+      optional = true,
+      description = "Kafka bootstrap servers",
+      helpText =
+          "Comma-separated Kafka bootstrap servers holding the Debezium topics. Required when"
+              + " `cdcSource` is `debezium`.",
+      example = "kafka-0:9092,kafka-1:9092")
+  @Default.String("")
+  String getKafkaBootstrapServers();
+
+  void setKafkaBootstrapServers(String value);
+
+  @TemplateParameter.Text(
+      order = 39,
+      groupName = "Source",
+      optional = true,
+      description = "Kafka topics",
+      helpText =
+          "Comma-separated Debezium table topics to read, for example"
+              + " `shop.shop.customers,shop.shop.orders`. Set either this or `kafkaTopicPattern`.")
+  @Default.String("")
+  String getKafkaTopics();
+
+  void setKafkaTopics(String value);
+
+  @TemplateParameter.Text(
+      order = 40,
+      groupName = "Source",
+      optional = true,
+      description = "Kafka topic pattern",
+      helpText =
+          "Java regular expression matching the Debezium table topics to read, for example"
+              + " `shop\\.shop\\..*`. Set either this or `kafkaTopics`.")
+  @Default.String("")
+  String getKafkaTopicPattern();
+
+  void setKafkaTopicPattern(String value);
+
+  @TemplateParameter.Text(
+      order = 41,
+      groupName = "Source",
+      optional = true,
+      description = "Kafka consumer group id",
+      helpText =
+          "Consumer group used to read the Debezium topics. When set, offsets are also committed to"
+              + " Kafka after each runner checkpoint so consumer lag is visible to Kafka tooling.")
+  @Default.String("")
+  String getKafkaConsumerGroupId();
+
+  void setKafkaConsumerGroupId(String value);
+
+  @TemplateParameter.Enum(
+      order = 42,
+      groupName = "Source",
+      enumOptions = {@TemplateEnumOption("earliest"), @TemplateEnumOption("latest")},
+      optional = true,
+      description = "Kafka start offset",
+      helpText =
+          "Where to start reading when the consumer group has no committed offset. Defaults to"
+              + " `earliest`, which replays the Debezium snapshot and all retained changes.")
+  @Default.String("earliest")
+  String getKafkaStartOffset();
+
+  void setKafkaStartOffset(String value);
+
+  @TemplateParameter.Text(
+      order = 43,
+      groupName = "Source",
+      optional = true,
+      description = "Extra Kafka consumer properties",
+      helpText =
+          "Additional Kafka consumer properties as `key=value` pairs separated by `;`, for example"
+              + " SASL/TLS settings for a managed Kafka service.",
+      example = "security.protocol=SASL_SSL;sasl.mechanism=PLAIN")
+  @Default.String("")
+  String getKafkaConsumerConfig();
+
+  void setKafkaConsumerConfig(String value);
+
+  @TemplateParameter.Text(
+      order = 44,
+      groupName = "Target",
+      optional = true,
+      description = "Spanner Omni endpoint",
+      helpText =
+          "Endpoint of a self-managed Spanner Omni deployment, for example"
+              + " `http://10.40.0.100:15000`. When set, the pipeline writes to Spanner Omni instead of"
+              + " Cloud Spanner; `projectId` and `instanceId` are ignored.")
+  @Default.String("")
+  String getSpannerOmniEndpoint();
+
+  void setSpannerOmniEndpoint(String value);
+
+  @TemplateParameter.Boolean(
+      order = 45,
+      groupName = "Target",
+      optional = true,
+      description = "Use a plaintext channel to Spanner Omni",
+      helpText = "Connect to Spanner Omni without TLS (insecure-mode deployments).")
+  @Default.Boolean(false)
+  Boolean getSpannerOmniPlainText();
+
+  void setSpannerOmniPlainText(Boolean value);
+
+  @TemplateParameter.Integer(
+      order = 46,
+      optional = true,
+      description = "Spanner transactions in flight per writer thread",
+      helpText =
+          "How many change events each writer instance applies concurrently. Events are assigned to"
+              + " lanes by primary-key hash, so changes to one row stay in order. The default of 1"
+              + " matches Dataflow, which already runs many writer threads per worker; raise it on"
+              + " runners with one thread per task slot such as Apache Flink.")
+  @Default.Integer(1)
+  Integer getWriterConcurrency();
+
+  void setWriterConcurrency(Integer value);
+
+  @TemplateParameter.Integer(
+      order = 47,
+      optional = true,
+      description = "Change events per Spanner transaction",
+      helpText =
+          "Maximum number of change events applied in one Spanner transaction by each writer lane."
+              + " Batching reads the shadow rows of all events with one request and commits them"
+              + " together, which cuts Spanner RPCs per event; ordering checks are unchanged. The"
+              + " default of 1 applies every event in its own transaction.")
+  @Default.Integer(1)
+  Integer getWriterBatchSize();
+
+  void setWriterBatchSize(Integer value);
 }

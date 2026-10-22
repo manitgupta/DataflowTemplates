@@ -20,6 +20,7 @@ import static com.google.cloud.teleport.v2.templates.constants.DatastreamToSpann
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -32,10 +33,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.ErrorCode;
+import com.google.cloud.spanner.KeySet;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Options;
+import com.google.cloud.spanner.ResultSet;
 import com.google.cloud.spanner.SpannerExceptionFactory;
 import com.google.cloud.spanner.Statement;
+import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.TransactionContext;
 import com.google.cloud.spanner.TransactionRunner;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
@@ -54,6 +58,7 @@ import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.junit.Test;
@@ -1691,5 +1696,202 @@ public class SpannerTransactionWriterDoFnTest {
     // Verify that error was output to DLQ (permanent error tag)
     verify(processContextMock, times(1))
         .output(eq(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG), any(FailsafeElement.class));
+  }
+
+  /** Mocks shared by the writerConcurrency tests; readRow returns the given shadow row. */
+  private SpannerTransactionWriterDoFn concurrentWriter(
+      int concurrency, TransactionContext transactionContext, Struct shadowRow) {
+    SpannerConfig spannerConfig = mock(SpannerConfig.class);
+    SpannerAccessor spannerAccessor = mock(SpannerAccessor.class);
+    PCollectionView<Ddl> ddlView = mock(PCollectionView.class);
+    DatabaseClient databaseClientMock = mock(DatabaseClient.class);
+    TransactionRunner transactionRunnerMock = mock(TransactionRunner.class);
+    ValueProvider<Options.RpcPriority> rpcPriority = mock(ValueProvider.class);
+    ValueProvider<String> instanceId = mock(ValueProvider.class);
+    ValueProvider<String> databaseId = mock(ValueProvider.class);
+    when(rpcPriority.get()).thenReturn(Options.RpcPriority.LOW);
+    when(spannerConfig.getRpcPriority()).thenReturn(rpcPriority);
+    when(spannerConfig.getInstanceId()).thenReturn(instanceId);
+    when(spannerConfig.getDatabaseId()).thenReturn(databaseId);
+    when(instanceId.get()).thenReturn("test-instance");
+    when(databaseId.get()).thenReturn("test-database");
+    when(spannerAccessor.getDatabaseClient()).thenReturn(databaseClientMock);
+    when(transactionContext.readRow(any(), any(), any())).thenReturn(shadowRow);
+    when(transactionRunnerMock.run(any()))
+        .thenAnswer(
+            invocation -> {
+              TransactionRunner.TransactionCallable<Void> callable = invocation.getArgument(0);
+              return callable.run(transactionContext);
+            });
+    when(databaseClientMock.readWriteTransaction(any(), any(), any()))
+        .thenReturn(transactionRunnerMock);
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+    SpannerTransactionWriterDoFn doFn =
+        new SpannerTransactionWriterDoFn(
+            spannerConfig, spannerConfig, ddlView, ddlView, "shadow", "mysql", true, concurrency);
+    doFn.setMapper(mapper);
+    doFn.setSpannerAccessor(spannerAccessor);
+    doFn.setIsInTransaction(new AtomicBoolean(false));
+    doFn.setTransactionAttemptCount(new AtomicLong(0));
+    return doFn;
+  }
+
+  private static FailsafeElement<String, String> userEvent(String firstName, long timestamp) {
+    ObjectNode event = new ObjectMapper().createObjectNode();
+    event.put(DatastreamConstants.EVENT_SOURCE_TYPE_KEY, Constants.MYSQL_SOURCE_TYPE);
+    event.put(DatastreamConstants.EVENT_TABLE_NAME_KEY, "Users");
+    event.put("first_name", firstName);
+    event.put("last_name", "Depp");
+    event.put("age", 13);
+    event.put(MySqlDsToSpSourceConnector.MYSQL_TIMESTAMP_KEY, timestamp);
+    event.put("_metadata_read_timestamp", timestamp);
+    event.put("_metadata_dataflow_timestamp", timestamp);
+    return FailsafeElement.of(event.toString(), event.toString());
+  }
+
+  @Test
+  public void testWriterConcurrencyAppliesEventsOnLanesAndEmitsAtFinishBundle() throws Exception {
+    TransactionContext transactionContext = mock(TransactionContext.class);
+    SpannerTransactionWriterDoFn doFn = concurrentWriter(4, transactionContext, null);
+    doFn.startLanes();
+    DataflowWorkerHarnessOptions options =
+        PipelineOptionsFactory.fromArgs("--jobId=123").as(DataflowWorkerHarnessOptions.class);
+    Ddl ddl = getTestDdl();
+    for (int i = 0; i < 8; i++) {
+      DoFn.ProcessContext c = mock(DoFn.ProcessContext.class);
+      when(c.element()).thenReturn(KV.of((long) i, userEvent("user" + i, 12345L)));
+      when(c.sideInput(any())).thenReturn(ddl);
+      when(c.getPipelineOptions()).thenReturn(options);
+      when(c.timestamp()).thenReturn(org.joda.time.Instant.ofEpochMilli(i));
+      doFn.processElement(c, GlobalWindow.INSTANCE);
+      // Lane mode never emits from the runner thread.
+      verify(c, never()).output(any());
+    }
+    DoFn.FinishBundleContext finish = mock(DoFn.FinishBundleContext.class);
+    doFn.finishBundle(finish);
+    verify(transactionContext, times(8)).buffer(any(Iterable.class));
+    verify(finish, times(8))
+        .output(any(com.google.cloud.Timestamp.class), any(), eq(GlobalWindow.INSTANCE));
+  }
+
+  @Test
+  public void testSkippedOlderEventClearsWatchdogFlag() {
+    // The shadow table already holds a newer sequence, so the event is skipped.
+    Struct newer = mock(Struct.class);
+    when(newer.getLong(anyString())).thenReturn(99999L);
+    when(newer.getString(anyString())).thenReturn("");
+    TransactionContext transactionContext = mock(TransactionContext.class);
+    SpannerTransactionWriterDoFn doFn = concurrentWriter(1, transactionContext, newer);
+    AtomicBoolean inTransaction = new AtomicBoolean(false);
+    doFn.setIsInTransaction(inTransaction);
+    DoFn.ProcessContext c = mock(DoFn.ProcessContext.class);
+    when(c.element()).thenReturn(KV.of(1L, userEvent("Johnny", 12345L)));
+    when(c.sideInput(any())).thenReturn(getTestDdl());
+    when(c.getPipelineOptions())
+        .thenReturn(
+            PipelineOptionsFactory.fromArgs("--jobId=123").as(DataflowWorkerHarnessOptions.class));
+    doFn.processElement(c);
+    verify(transactionContext, never()).buffer(any(Iterable.class));
+    // Previously the flag stayed set after a skip, so an idle worker was killed by the watchdog.
+    assertEquals(false, inTransaction.get());
+  }
+
+  @Test
+  public void testBatchedWriterAppliesEventsInOrderInOneTransaction() throws Exception {
+    // Shadow table already holds a newer change for "c"; "a" and "b" have no shadow row yet.
+    Struct shadowC =
+        Struct.newBuilder()
+            .set("first_name")
+            .to("c")
+            .set("last_name")
+            .to("Depp")
+            .set("timestamp")
+            .to(99999L)
+            .set("log_file")
+            .to("")
+            .set("log_position")
+            .to(-1L)
+            .build();
+    ResultSet shadowRows = mock(ResultSet.class);
+    when(shadowRows.next()).thenReturn(true, false);
+    when(shadowRows.getCurrentRowAsStruct()).thenReturn(shadowC);
+    TransactionContext transactionContext = mock(TransactionContext.class);
+    when(transactionContext.read(eq("shadow_Users"), any(KeySet.class), any()))
+        .thenReturn(shadowRows);
+    SpannerConfig spannerConfig = mockSpannerConfig();
+    SpannerTransactionWriterDoFn doFn =
+        new SpannerTransactionWriterDoFn(
+            spannerConfig,
+            spannerConfig,
+            mock(PCollectionView.class),
+            mock(PCollectionView.class),
+            "shadow",
+            "mysql",
+            true,
+            1,
+            8);
+    SpannerAccessor accessor = mock(SpannerAccessor.class);
+    DatabaseClient client = mock(DatabaseClient.class);
+    TransactionRunner runner = mock(TransactionRunner.class);
+    when(accessor.getDatabaseClient()).thenReturn(client);
+    when(client.readWriteTransaction(any(), any(), any())).thenReturn(runner);
+    when(runner.run(any()))
+        .thenAnswer(
+            invocation -> {
+              TransactionRunner.TransactionCallable<Void> callable = invocation.getArgument(0);
+              return callable.run(transactionContext);
+            });
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+    doFn.setMapper(mapper);
+    doFn.setSpannerAccessor(accessor);
+    doFn.setIsInTransaction(new AtomicBoolean(false));
+    doFn.setTransactionAttemptCount(new AtomicLong(0));
+    doFn.startLanes();
+    Ddl ddl = getTestDdl();
+    DataflowWorkerHarnessOptions options =
+        PipelineOptionsFactory.fromArgs("--jobId=123").as(DataflowWorkerHarnessOptions.class);
+    String[][] events = {{"a", "100"}, {"b", "100"}, {"a", "200"}, {"c", "50"}};
+    for (String[] e : events) {
+      DoFn.ProcessContext c = mock(DoFn.ProcessContext.class);
+      when(c.element()).thenReturn(KV.of(7L, userEvent(e[0], Long.parseLong(e[1]))));
+      when(c.sideInput(any())).thenReturn(ddl);
+      when(c.getPipelineOptions()).thenReturn(options);
+      when(c.timestamp()).thenReturn(org.joda.time.Instant.ofEpochMilli(1));
+      doFn.processElement(c, GlobalWindow.INSTANCE);
+    }
+    DoFn.FinishBundleContext finish = mock(DoFn.FinishBundleContext.class);
+    doFn.finishBundle(finish);
+
+    // One shadow read for all keys and one commit for the batch.
+    verify(transactionContext, times(1)).read(eq("shadow_Users"), any(KeySet.class), any());
+    ArgumentCaptor<Iterable<Mutation>> buffered = ArgumentCaptor.forClass(Iterable.class);
+    verify(transactionContext, times(1)).buffer(buffered.capture());
+    java.util.List<Mutation> mutations = new java.util.ArrayList<>();
+    buffered.getValue().forEach(mutations::add);
+    // a@100, b@100, a@200 are applied (data + shadow mutation each); c@50 is older and skipped.
+    assertEquals(6, mutations.size());
+    assertEquals("a", mutations.get(0).asMap().get("first_name").getString());
+    assertEquals(13L, mutations.get(0).asMap().get("age").getInt64());
+    assertEquals("a", mutations.get(4).asMap().get("first_name").getString());
+    assertEquals(200L, mutations.get(5).asMap().get("timestamp").getInt64());
+    // Every event, including the skipped one, reports success once the bundle finishes.
+    verify(finish, times(4))
+        .output(any(com.google.cloud.Timestamp.class), any(), eq(GlobalWindow.INSTANCE));
+  }
+
+  private static SpannerConfig mockSpannerConfig() {
+    SpannerConfig spannerConfig = mock(SpannerConfig.class);
+    ValueProvider<Options.RpcPriority> rpcPriority = mock(ValueProvider.class);
+    ValueProvider<String> instanceId = mock(ValueProvider.class);
+    ValueProvider<String> databaseId = mock(ValueProvider.class);
+    when(rpcPriority.get()).thenReturn(Options.RpcPriority.LOW);
+    when(spannerConfig.getRpcPriority()).thenReturn(rpcPriority);
+    when(spannerConfig.getInstanceId()).thenReturn(instanceId);
+    when(spannerConfig.getDatabaseId()).thenReturn(databaseId);
+    when(instanceId.get()).thenReturn("test-instance");
+    when(databaseId.get()).thenReturn("test-database");
+    return spannerConfig;
   }
 }

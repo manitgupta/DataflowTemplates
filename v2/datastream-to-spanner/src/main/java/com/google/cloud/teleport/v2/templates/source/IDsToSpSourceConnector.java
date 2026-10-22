@@ -18,6 +18,7 @@ package com.google.cloud.teleport.v2.templates.source;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.api.services.datastream.v1.model.SourceConfig;
 import com.google.cloud.spanner.Dialect;
+import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.TransactionContext;
 import com.google.cloud.teleport.v2.spanner.ddl.Ddl;
 import com.google.cloud.teleport.v2.spanner.migrations.exceptions.ChangeEventConvertorException;
@@ -26,6 +27,7 @@ import com.google.cloud.teleport.v2.spanner.migrations.exceptions.InvalidChangeE
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventContext;
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventSequence;
 import com.google.cloud.teleport.v2.templates.datastream.ChangeEventSequenceCreationException;
+import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -61,4 +63,21 @@ public interface IDsToSpSourceConnector {
       Ddl shadowDdl,
       boolean useSqlStatements)
       throws ChangeEventSequenceCreationException, InvalidChangeEventException;
+
+  /**
+   * Shadow table columns that hold the change event sequence, used to read the shadow rows of many
+   * events in one request when events are written in batches. An empty list (the default) means the
+   * source does not support batched writes and every event gets its own transaction.
+   */
+  default List<String> getShadowSequenceColumns(ChangeEventContext changeEventContext) {
+    return List.of();
+  }
+
+  /**
+   * Creates the sequence stored in a shadow table row read with {@link #getShadowSequenceColumns}.
+   */
+  default ChangeEventSequence createChangeEventSequenceFromShadowRow(
+      ChangeEventContext changeEventContext, Struct shadowRow) {
+    throw new UnsupportedOperationException(getSourceType() + " does not support batched writes");
+  }
 }

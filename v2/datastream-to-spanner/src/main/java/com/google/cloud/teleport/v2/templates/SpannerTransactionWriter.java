@@ -80,6 +80,12 @@ public class SpannerTransactionWriter
   /* The run mode, whether it is regular or retry. */
   private final Boolean isRegularRunMode;
 
+  /* Spanner transactions in flight per writer DoFn instance, see SpannerTransactionWriterDoFn. */
+  private final int writerConcurrency;
+
+  /* Events per Spanner transaction on each writer lane, see SpannerTransactionWriterDoFn. */
+  private final int writerBatchSize;
+
   public SpannerTransactionWriter(
       SpannerConfig spannerConfig,
       SpannerConfig shadowTableSpannerConfig,
@@ -88,7 +94,51 @@ public class SpannerTransactionWriter
       String shadowTablePrefix,
       String sourceType,
       Boolean isRegularRunMode) {
+    this(
+        spannerConfig,
+        shadowTableSpannerConfig,
+        ddlView,
+        shadowTableDdlView,
+        shadowTablePrefix,
+        sourceType,
+        isRegularRunMode,
+        1);
+  }
+
+  public SpannerTransactionWriter(
+      SpannerConfig spannerConfig,
+      SpannerConfig shadowTableSpannerConfig,
+      PCollectionView<Ddl> ddlView,
+      PCollectionView<Ddl> shadowTableDdlView,
+      String shadowTablePrefix,
+      String sourceType,
+      Boolean isRegularRunMode,
+      int writerConcurrency) {
+    this(
+        spannerConfig,
+        shadowTableSpannerConfig,
+        ddlView,
+        shadowTableDdlView,
+        shadowTablePrefix,
+        sourceType,
+        isRegularRunMode,
+        writerConcurrency,
+        1);
+  }
+
+  public SpannerTransactionWriter(
+      SpannerConfig spannerConfig,
+      SpannerConfig shadowTableSpannerConfig,
+      PCollectionView<Ddl> ddlView,
+      PCollectionView<Ddl> shadowTableDdlView,
+      String shadowTablePrefix,
+      String sourceType,
+      Boolean isRegularRunMode,
+      int writerConcurrency,
+      int writerBatchSize) {
     Preconditions.checkNotNull(spannerConfig);
+    this.writerConcurrency = writerConcurrency;
+    this.writerBatchSize = writerBatchSize;
     this.spannerConfig = spannerConfig;
     this.shadowTableSpannerConfig = shadowTableSpannerConfig;
     this.ddlView = ddlView;
@@ -130,7 +180,9 @@ public class SpannerTransactionWriter
                             shadowTableDdlView,
                             shadowTablePrefix,
                             sourceType,
-                            isRegularRunMode))
+                            isRegularRunMode,
+                            writerConcurrency,
+                            writerBatchSize))
                     .withSideInputs(ddlView, shadowTableDdlView)
                     .withOutputTags(
                         DatastreamToSpannerConstants.SUCCESSFUL_EVENT_TAG,

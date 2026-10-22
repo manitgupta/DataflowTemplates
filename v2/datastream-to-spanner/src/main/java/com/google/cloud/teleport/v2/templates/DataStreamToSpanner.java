@@ -46,6 +46,7 @@ import com.google.cloud.teleport.v2.spanner.migrations.utils.SecretManagerAccess
 import com.google.cloud.teleport.v2.spanner.migrations.utils.SessionFileReader;
 import com.google.cloud.teleport.v2.spanner.migrations.utils.TransformationContextReader;
 import com.google.cloud.teleport.v2.templates.constants.DatastreamToSpannerConstants;
+import com.google.cloud.teleport.v2.templates.debezium.ReadDebeziumChangeEvents;
 import com.google.cloud.teleport.v2.templates.source.DatastreamToSpannerSourceConnectorRegistry;
 import com.google.cloud.teleport.v2.templates.spanner.ProcessInformationSchema;
 import com.google.cloud.teleport.v2.templates.transform.ChangeEventTransformerDoFn;
@@ -146,12 +147,18 @@ public class DataStreamToSpanner {
   private static final Logger LOG = LoggerFactory.getLogger(DataStreamToSpanner.class);
   private static final String AVRO_SUFFIX = "avro";
   private static final String JSON_SUFFIX = "json";
+  static final String CDC_SOURCE_DEBEZIUM = "debezium";
+  static final String SPANNER_OMNI_DEFAULT_ID = "default";
 
   static void validateSourceType(DataStreamToSpannerOptions options) {
     boolean isRetryMode = Constants.RUN_MODE_RETRY_DLQ.equals(options.getRunMode());
     if (isRetryMode) {
       // retry mode does not read from Datastream
       return;
+    }
+    if (isDebeziumSource(options) && options.getDatastreamSourceType() == null) {
+      // Debezium mode has no Datastream stream to inspect; MySQL is the only supported source.
+      options.setDatastreamSourceType("mysql");
     }
     String sourceType = getSourceType(options);
     if (!DatastreamToSpannerSourceConnectorRegistry.getSupportedSourceTypes()
@@ -163,6 +170,14 @@ public class DataStreamToSpanner {
               + DatastreamToSpannerSourceConnectorRegistry.getSupportedSourceTypes());
     }
     options.setDatastreamSourceType(sourceType);
+  }
+
+  static boolean isDebeziumSource(DataStreamToSpannerOptions options) {
+    return CDC_SOURCE_DEBEZIUM.equalsIgnoreCase(options.getCdcSource());
+  }
+
+  static boolean isSpannerOmni(DataStreamToSpannerOptions options) {
+    return !Strings.isNullOrEmpty(options.getSpannerOmniEndpoint());
   }
 
   static String getSourceType(DataStreamToSpannerOptions options) {
@@ -229,11 +244,15 @@ public class DataStreamToSpanner {
      *   3) Write Failures to GCS Dead Letter Queue
      */
     Pipeline pipeline = Pipeline.create(options);
-    String workerMachineType =
-        pipeline.getOptions().as(DataflowPipelineWorkerPoolOptions.class).getWorkerMachineType();
-    Optional<Integer> resourceHintsMinCpus =
-        DataflowWorkerMachineTypeUtils.getMinCpuResourceHint(pipeline.getOptions());
-    DataflowWorkerMachineTypeUtils.validateMachineSpecs(workerMachineType, 4, resourceHintsMinCpus);
+    if (options.getRunner() == null
+        || options.getRunner().getSimpleName().equals("DataflowRunner")) {
+      String workerMachineType =
+          pipeline.getOptions().as(DataflowPipelineWorkerPoolOptions.class).getWorkerMachineType();
+      Optional<Integer> resourceHintsMinCpus =
+          DataflowWorkerMachineTypeUtils.getMinCpuResourceHint(pipeline.getOptions());
+      DataflowWorkerMachineTypeUtils.validateMachineSpecs(
+          workerMachineType, 4, resourceHintsMinCpus);
+    }
     DeadLetterQueueManager dlqManager = buildDlqManager(options);
     // Ingest session file into schema object.
     Schema schema = SessionFileReader.read(options.getSessionFilePath());
@@ -247,12 +266,21 @@ public class DataStreamToSpanner {
      */
 
     // Prepare Spanner config
+    if (isSpannerOmni(options)) {
+      // Spanner Omni has no project or instance; its client uses "default" for both.
+      options.setProjectId(SPANNER_OMNI_DEFAULT_ID);
+      options.setInstanceId(SPANNER_OMNI_DEFAULT_ID);
+      if (!Strings.isNullOrEmpty(options.getShadowTableSpannerDatabaseId())) {
+        options.setShadowTableSpannerInstanceId(SPANNER_OMNI_DEFAULT_ID);
+      }
+    }
     SpannerConfig spannerConfig =
-        SpannerConfig.create()
-            .withProjectId(ValueProvider.StaticValueProvider.of(options.getProjectId()))
-            .withHost(ValueProvider.StaticValueProvider.of(options.getSpannerHost()))
-            .withInstanceId(ValueProvider.StaticValueProvider.of(options.getInstanceId()))
-            .withDatabaseId(ValueProvider.StaticValueProvider.of(options.getDatabaseId()))
+        withSpannerEndpoint(
+                SpannerConfig.create()
+                    .withProjectId(ValueProvider.StaticValueProvider.of(options.getProjectId()))
+                    .withInstanceId(ValueProvider.StaticValueProvider.of(options.getInstanceId()))
+                    .withDatabaseId(ValueProvider.StaticValueProvider.of(options.getDatabaseId())),
+                options)
             .withRpcPriority(ValueProvider.StaticValueProvider.of(options.getSpannerPriority()))
             .withCommitRetrySettings(
                 RetrySettings.newBuilder()
@@ -343,7 +371,32 @@ public class DataStreamToSpanner {
         reconsumedElements
             .get(DeadLetterQueueManager.RETRYABLE_ERRORS)
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
-    if (isRegularMode) {
+    PCollection<FailsafeElement<String, String>> sourceParseErrors = null;
+    if (isRegularMode && isDebeziumSource(options)) {
+      LOG.info("Regular Debezium (Kafka) flow");
+      PCollectionTuple debeziumRecords =
+          pipeline.apply(
+              "Read Debezium change events",
+              new ReadDebeziumChangeEvents(
+                  options.getKafkaBootstrapServers(),
+                  options.getKafkaTopics(),
+                  options.getKafkaTopicPattern(),
+                  options.getKafkaConsumerGroupId(),
+                  options.getKafkaStartOffset(),
+                  options.getKafkaConsumerConfig(),
+                  options.getDatastreamSourceType()));
+      sourceParseErrors = debeziumRecords.get(ReadDebeziumChangeEvents.PERMANENT_ERRORS);
+      int maxNumWorkers = options.getMaxNumWorkers() != 0 ? options.getMaxNumWorkers() : 1;
+      jsonRecords =
+          PCollectionList.of(debeziumRecords.get(ReadDebeziumChangeEvents.CHANGE_EVENTS))
+              .and(dlqJsonRecords)
+              .apply(Flatten.pCollections())
+              .apply(
+                  "Reshuffle",
+                  Reshuffle.<FailsafeElement<String, String>>viaRandomKey()
+                      .withNumBuckets(
+                          maxNumWorkers * DatastreamToSpannerConstants.MAX_DOFN_PER_WORKER));
+    } else if (isRegularMode) {
       LOG.info("Regular Datastream flow");
       PCollection<FailsafeElement<String, String>> datastreamJsonRecords =
           pipeline.apply(
@@ -476,7 +529,9 @@ public class DataStreamToSpanner {
                     shadowTableDdlView,
                     options.getShadowTablePrefix(),
                     options.getDatastreamSourceType(),
-                    isRegularMode));
+                    isRegularMode,
+                    options.getWriterConcurrency(),
+                    options.getWriterBatchSize()));
     /*
      * Stage 5: Write failures to GCS Dead Letter Queue
      * a) Retryable errors are written to retry GCS Dead letter queue
@@ -503,11 +558,15 @@ public class DataStreamToSpanner {
             .get(DeadLetterQueueManager.PERMANENT_ERRORS)
             .setCoder(FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
     // TODO: Write errors from transformer and spanner writer into separate folders
-    PCollection<FailsafeElement<String, String>> permanentErrors =
+    PCollectionList<FailsafeElement<String, String>> permanentErrorList =
         PCollectionList.of(dlqErrorRecords)
             .and(spannerWriteResults.permanentErrors())
-            .and(transformedRecords.get(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG))
-            .apply(Flatten.pCollections());
+            .and(transformedRecords.get(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG));
+    if (sourceParseErrors != null) {
+      permanentErrorList = permanentErrorList.and(sourceParseErrors);
+    }
+    PCollection<FailsafeElement<String, String>> permanentErrors =
+        permanentErrorList.apply(Flatten.pCollections());
     // increment the metrics
     permanentErrors
         .apply("Update metrics", ParDo.of(new MetricUpdaterDoFn(isRegularMode)))
@@ -604,11 +663,12 @@ public class DataStreamToSpanner {
           shadowTableSpannerInstanceId,
           shadowTableSpannerDatabaseId);
     }
-    return SpannerConfig.create()
-        .withProjectId(ValueProvider.StaticValueProvider.of(options.getProjectId()))
-        .withHost(ValueProvider.StaticValueProvider.of(options.getSpannerHost()))
-        .withInstanceId(ValueProvider.StaticValueProvider.of(shadowTableSpannerInstanceId))
-        .withDatabaseId(ValueProvider.StaticValueProvider.of(shadowTableSpannerDatabaseId))
+    return withSpannerEndpoint(
+            SpannerConfig.create()
+                .withProjectId(ValueProvider.StaticValueProvider.of(options.getProjectId()))
+                .withInstanceId(ValueProvider.StaticValueProvider.of(shadowTableSpannerInstanceId))
+                .withDatabaseId(ValueProvider.StaticValueProvider.of(shadowTableSpannerDatabaseId)),
+            options)
         .withRpcPriority(ValueProvider.StaticValueProvider.of(options.getSpannerPriority()))
         .withCommitRetrySettings(
             RetrySettings.newBuilder()
@@ -621,6 +681,21 @@ public class DataStreamToSpanner {
                 .setMaxRpcTimeout(Duration.ofMinutes(4))
                 .setMaxAttempts(1)
                 .build());
+  }
+
+  /** Points the config at Cloud Spanner ({@code spannerHost}) or at a Spanner Omni endpoint. */
+  static SpannerConfig withSpannerEndpoint(
+      SpannerConfig config, DataStreamToSpannerOptions options) {
+    if (!isSpannerOmni(options)) {
+      return config.withHost(ValueProvider.StaticValueProvider.of(options.getSpannerHost()));
+    }
+    config =
+        config.withExperimentalHost(
+            ValueProvider.StaticValueProvider.of(options.getSpannerOmniEndpoint()));
+    if (Boolean.TRUE.equals(options.getSpannerOmniPlainText())) {
+      config = config.withUsingPlainTextChannel(true);
+    }
+    return config;
   }
 
   static DeadLetterQueueManager buildDlqManager(DataStreamToSpannerOptions options) {

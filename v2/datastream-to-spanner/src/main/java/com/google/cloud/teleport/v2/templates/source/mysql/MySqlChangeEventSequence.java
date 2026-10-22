@@ -151,6 +151,15 @@ class MySqlChangeEventSequence extends ChangeEventSequence {
     }
   }
 
+  /* Creates a MySqlChangeEventSequence from a shadow table row read in a batch. */
+  public static MySqlChangeEventSequence createFromShadowRow(
+      ChangeEventContext context, Struct row) {
+    return new MySqlChangeEventSequence(
+        row.getLong(context.getSafeShadowColumn(MySqlDsToSpSourceConnector.MYSQL_TIMESTAMP_KEY)),
+        row.getString(context.getSafeShadowColumn(MySqlDsToSpSourceConnector.MYSQL_LOGFILE_KEY)),
+        row.getLong(context.getSafeShadowColumn(MySqlDsToSpSourceConnector.MYSQL_LOGPOSITION_KEY)));
+  }
+
   Long getTimestamp() {
     return timestamp;
   }

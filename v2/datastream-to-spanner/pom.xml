@@ -53,6 +53,22 @@
             <artifactId>json</artifactId>
             <version>${json.version}</version>
         </dependency>
+        <!-- Debezium (cdcSource=debezium) reads change events from Kafka. -->
+        <dependency>
+            <groupId>org.apache.beam</groupId>
+            <artifactId>beam-sdks-java-io-kafka</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+            <version>${kafka-clients.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.xerial.snappy</groupId>
+                    <artifactId>snappy-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
 
         <!-- Test dependencies -->
         <dependency>
