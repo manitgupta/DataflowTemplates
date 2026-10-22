@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.CoderException;
 import org.apache.beam.sdk.coders.CustomCoder;
@@ -94,6 +95,28 @@ public class FailsafeElementCoder<OriginalT, CurrentT>
   @Override
   public List<? extends Coder<?>> getCoderArguments() {
     return Arrays.asList(originalPayloadCoder, currentPayloadCoder);
+  }
+
+  /**
+   * Value equality on the component coders. Runners that compare coders when combining streams
+   * (Flink's union for Flatten) otherwise treat two instances of the same coder as different types.
+   */
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+    if (!(other instanceof FailsafeElementCoder)) {
+      return false;
+    }
+    FailsafeElementCoder<?, ?> that = (FailsafeElementCoder<?, ?>) other;
+    return Objects.equals(originalPayloadCoder, that.originalPayloadCoder)
+        && Objects.equals(currentPayloadCoder, that.currentPayloadCoder);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(originalPayloadCoder, currentPayloadCoder);
   }
 
   @Override

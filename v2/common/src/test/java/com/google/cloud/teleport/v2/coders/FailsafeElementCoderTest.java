@@ -16,6 +16,7 @@
 package com.google.cloud.teleport.v2.coders;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.mockito.Mockito.mock;
 
 import com.google.cloud.teleport.v2.values.FailsafeElement;
@@ -23,6 +24,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
+import org.apache.beam.sdk.coders.VarLongCoder;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -46,5 +48,16 @@ public class FailsafeElementCoderTest {
     }
 
     assertEquals(failsafeElement.getOriginalPayload(), originalPayload);
+  }
+
+  @Test
+  public void testCodersWithSameComponentsAreEqual() {
+    FailsafeElementCoder<String, String> a =
+        FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+    FailsafeElementCoder<String, String> b =
+        FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+    assertEquals(a, b);
+    assertEquals(a.hashCode(), b.hashCode());
+    assertNotEquals(a, FailsafeElementCoder.of(StringUtf8Coder.of(), VarLongCoder.of()));
   }
 }
