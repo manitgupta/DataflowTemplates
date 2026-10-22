@@ -523,15 +523,16 @@ public class DataStreamToSpanner {
             .apply(
                 "Write events to Cloud Spanner",
                 new SpannerTransactionWriter(
-                    spannerConfig,
-                    shadowTableSpannerConfig,
-                    ddlView,
-                    shadowTableDdlView,
-                    options.getShadowTablePrefix(),
-                    options.getDatastreamSourceType(),
-                    isRegularMode,
-                    options.getWriterConcurrency(),
-                    options.getWriterBatchSize()));
+                        spannerConfig,
+                        shadowTableSpannerConfig,
+                        ddlView,
+                        shadowTableDdlView,
+                        options.getShadowTablePrefix(),
+                        options.getDatastreamSourceType(),
+                        isRegularMode,
+                        options.getWriterConcurrency(),
+                        options.getWriterBatchSize())
+                    .withKeyAffinity(options.getWriterKeyAffinity()));
     /*
      * Stage 5: Write failures to GCS Dead Letter Queue
      * a) Retryable errors are written to retry GCS Dead letter queue

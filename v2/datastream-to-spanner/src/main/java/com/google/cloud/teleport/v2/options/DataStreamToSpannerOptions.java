@@ -617,4 +617,18 @@ public interface DataStreamToSpannerOptions
   Integer getWriterBatchSize();
 
   void setWriterBatchSize(Integer value);
+
+  @TemplateParameter.Boolean(
+      order = 48,
+      optional = true,
+      description = "Send each row's changes to one writer",
+      helpText =
+          "Partition change events by primary key with a keyed step instead of a reshuffle before"
+              + " writing. Runners such as Apache Flink implement reshuffle as a round-robin"
+              + " rebalance, so changes to a frequently updated row reach many writers at once and"
+              + " their transactions contend on that row. Defaults to false.")
+  @Default.Boolean(false)
+  Boolean getWriterKeyAffinity();
+
+  void setWriterKeyAffinity(Boolean value);
 }

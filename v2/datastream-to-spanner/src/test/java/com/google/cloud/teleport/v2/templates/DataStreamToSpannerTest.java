@@ -358,6 +358,39 @@ public class DataStreamToSpannerTest {
   }
 
   @Test
+  public void testBuildPipeline_debeziumSourceOmniTarget() throws Exception {
+    String[] args =
+        new String[] {
+          "--projectId=project-id",
+          "--instanceId=instance-id",
+          "--databaseId=database-id",
+          "--spannerOmniEndpoint=http://10.0.0.1:15000",
+          "--spannerOmniPlainText=true",
+          "--cdcSource=debezium",
+          "--kafkaBootstrapServers=kafka:9092",
+          "--kafkaTopicPattern=cdc1\\.shop\\..*",
+          "--kafkaConsumerGroupId=group",
+          "--writerConcurrency=8",
+          "--writerBatchSize=50",
+          "--writerKeyAffinity=true",
+          "--runMode=" + Constants.RUN_MODE_REGULAR,
+          "--tempLocation=gs://test-bucket/temp",
+          "--runner=DirectRunner"
+        };
+    DataStreamToSpannerOptions options =
+        PipelineOptionsFactory.fromArgs(args).as(DataStreamToSpannerOptions.class);
+    DataStreamToSpanner.validateSourceType(options);
+    assertEquals("mysql", options.getDatastreamSourceType());
+
+    Pipeline pipeline = DataStreamToSpanner.buildPipeline(options);
+
+    assertNotNull(pipeline);
+    // Spanner Omni has a single implicit project and instance.
+    assertEquals("default", options.getProjectId());
+    assertEquals("default", options.getInstanceId());
+  }
+
+  @Test
   public void testBuildPipeline_retryDLQ() throws Exception {
     String[] args =
         new String[] {

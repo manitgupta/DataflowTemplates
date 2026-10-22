@@ -27,14 +27,20 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.BooleanCoder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarLongCoder;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
+import org.apache.beam.sdk.state.StateSpec;
+import org.apache.beam.sdk.state.StateSpecs;
+import org.apache.beam.sdk.state.ValueState;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.Reshuffle;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
@@ -85,6 +91,9 @@ public class SpannerTransactionWriter
 
   /* Events per Spanner transaction on each writer lane, see SpannerTransactionWriterDoFn. */
   private final int writerBatchSize;
+
+  /* Route each row's events to one writer instance with a keyed step instead of a Reshuffle. */
+  private boolean keyAffinity = false;
 
   public SpannerTransactionWriter(
       SpannerConfig spannerConfig,
@@ -148,6 +157,30 @@ public class SpannerTransactionWriter
     this.isRegularRunMode = isRegularRunMode;
   }
 
+  /**
+   * Partitions events by primary-key hash with a stateful (keyed) pass-through instead of {@link
+   * Reshuffle}. Some runners (Flink) implement Reshuffle as a round-robin rebalance, which spreads
+   * the changes of one row over all writer instances; their transactions then contend on the same
+   * row lock. A keyed step makes the runner partition by key, so a row's changes reach one writer.
+   */
+  public SpannerTransactionWriter withKeyAffinity(boolean keyAffinity) {
+    this.keyAffinity = keyAffinity;
+    return this;
+  }
+
+  /** Stateful pass-through: declaring state makes runners partition the input by key. */
+  static class KeyAffinityFn
+      extends DoFn<
+          KV<Long, FailsafeElement<String, String>>, KV<Long, FailsafeElement<String, String>>> {
+    @StateId("affinity")
+    private final StateSpec<ValueState<Boolean>> affinity = StateSpecs.value(BooleanCoder.of());
+
+    @ProcessElement
+    public void processElement(ProcessContext c) {
+      c.output(c.element());
+    }
+  }
+
   @Override
   public SpannerTransactionWriter.Result expand(
       PCollection<FailsafeElement<String, String>> input) {
@@ -162,35 +195,41 @@ public class SpannerTransactionWriter
                         List.of(
                             DatastreamToSpannerConstants.PERMANENT_ERROR_TAG,
                             DatastreamToSpannerConstants.SKIPPED_TABLE_EVENT_TAG))));
-    PCollectionTuple spannerWriteResults =
+    KvCoder<Long, FailsafeElement<String, String>> keyedCoder =
+        KvCoder.of(
+            VarLongCoder.of(), FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()));
+    PCollection<KV<Long, FailsafeElement<String, String>>> keyed =
         keyedEvents
             .get(DatastreamToSpannerConstants.SUCCESSFUL_KEYED_EVENT_TAG)
-            .setCoder(
-                KvCoder.of(
-                    VarLongCoder.of(),
-                    FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of())))
-            .apply("Reshuffle Keyed Events", Reshuffle.of())
-            .apply(
-                "Write Mutations",
-                ParDo.of(
-                        new SpannerTransactionWriterDoFn(
-                            spannerConfig,
-                            shadowTableSpannerConfig,
-                            ddlView,
-                            shadowTableDdlView,
-                            shadowTablePrefix,
-                            sourceType,
-                            isRegularRunMode,
-                            writerConcurrency,
-                            writerBatchSize))
-                    .withSideInputs(ddlView, shadowTableDdlView)
-                    .withOutputTags(
-                        DatastreamToSpannerConstants.SUCCESSFUL_EVENT_TAG,
-                        TupleTagList.of(
-                            Arrays.asList(
-                                DatastreamToSpannerConstants.PERMANENT_ERROR_TAG,
-                                DatastreamToSpannerConstants.RETRYABLE_ERROR_TAG,
-                                DatastreamToSpannerConstants.SKIPPED_TABLE_EVENT_TAG))));
+            .setCoder(keyedCoder);
+    PCollection<KV<Long, FailsafeElement<String, String>>> partitioned =
+        keyAffinity
+            ? keyed
+                .apply("Partition Keyed Events", ParDo.of(new KeyAffinityFn()))
+                .setCoder(keyedCoder)
+            : keyed.apply("Reshuffle Keyed Events", Reshuffle.of());
+    PCollectionTuple spannerWriteResults =
+        partitioned.apply(
+            "Write Mutations",
+            ParDo.of(
+                    new SpannerTransactionWriterDoFn(
+                        spannerConfig,
+                        shadowTableSpannerConfig,
+                        ddlView,
+                        shadowTableDdlView,
+                        shadowTablePrefix,
+                        sourceType,
+                        isRegularRunMode,
+                        writerConcurrency,
+                        writerBatchSize))
+                .withSideInputs(ddlView, shadowTableDdlView)
+                .withOutputTags(
+                    DatastreamToSpannerConstants.SUCCESSFUL_EVENT_TAG,
+                    TupleTagList.of(
+                        Arrays.asList(
+                            DatastreamToSpannerConstants.PERMANENT_ERROR_TAG,
+                            DatastreamToSpannerConstants.RETRYABLE_ERROR_TAG,
+                            DatastreamToSpannerConstants.SKIPPED_TABLE_EVENT_TAG))));
 
     PCollection<FailsafeElement<String, String>> keyedEventsErrorRecords =
         keyedEvents.get(DatastreamToSpannerConstants.PERMANENT_ERROR_TAG);
