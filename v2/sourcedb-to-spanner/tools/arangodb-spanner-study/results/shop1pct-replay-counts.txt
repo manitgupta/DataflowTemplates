@@ -1,0 +1,14 @@
+
+
+progress 36,744 rows {'users': 6340, 'follows': 30404}
+REPLAY_DONE rows=36,744 per_table={'users': 6340, 'follows': 30404} elapsed=14s dry_run=False
+14:16:59
+users               5,000,000
+products            1,250,000
+orders              6,250,000
+events             23,330,000
+follows            20,000,000
+purchased          20,000,000
+type_zoo              100,000
+hostile_keys               33
+TOTAL              75,930,033

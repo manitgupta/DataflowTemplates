@@ -1,0 +1,18 @@
+
+
+--- table hostile_keys (collection hostile_keys, DOCUMENT)
+[PASS] hostile_keys: 6 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] hostile_keys: ArangoDB count 5000 == summary rowCount
+[PASS] hostile_keys: Spanner 5000 + DLQ 0 == 5000
+[PASS] hostile_keys: 500 sampled documents match (0 with WARN)
+--- table knows (collection knows, EDGE)
+[PASS] knows: 8 bulk files with schema md5 a7f80905c6bc6e9912edef8c18d80a52
+[PASS] knows: ArangoDB count 100000 == summary rowCount
+[PASS] knows: Spanner 100000 + DLQ 0 == 100000
+[PASS] knows: 500 sampled documents match (0 with WARN)
+--- table user_profiles (collection user-profiles, DOCUMENT)
+[PASS] user_profiles: 8 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] user_profiles: ArangoDB count 100012 == summary rowCount
+[PASS] user_profiles: Spanner 100012 + DLQ 0 == 100012
+[PASS] user_profiles: 500 sampled documents match (0 with WARN)
+summary: {'PASS': 12, 'WARN': 0, 'FAIL': 0}

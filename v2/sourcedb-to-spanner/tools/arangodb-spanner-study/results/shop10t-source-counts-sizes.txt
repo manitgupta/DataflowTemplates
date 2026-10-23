@@ -1,0 +1,19 @@
+
+
+users      count=675,000,000 plan=675,000,000 OK
+products   count=168,750,000 plan=168,750,000 OK
+orders     count=843,750,000 plan=843,750,000 OK
+events     count=3,149,550,000 plan=3,149,550,000 OK
+follows    count=2,700,000,000 plan=2,700,000,000 OK
+purchased  count=2,700,000,000 plan=2,700,000,000 OK
+type_zoo   count=13,500,000 plan=13,500,000 OK
+COUNTS_OK
+users        count=   675,000,000 disk=   0.611 TB avgJson=   1850 B logical=   1.249 TB
+products     count=   168,750,000 disk=   0.470 TB avgJson=   5771 B logical=   0.974 TB
+orders       count=   843,750,000 disk=   1.045 TB avgJson=   2604 B logical=   2.197 TB
+events       count= 3,149,550,000 disk=   2.069 TB avgJson=   1341 B logical=   4.223 TB
+follows      count= 2,700,000,000 disk=   0.802 TB avgJson=    503 B logical=   1.359 TB
+purchased    count= 2,700,000,000 disk=   0.785 TB avgJson=    473 B logical=   1.278 TB
+type_zoo     count=    13,500,000 disk=   0.006 TB avgJson=   1019 B logical=   0.014 TB
+hostile_keys count=            33 disk=   0.000 TB avgJson=     96 B logical=   0.000 TB
+TOTAL disk(documentsSize+indexes)=5.788 TB logical JSON=11.293 TB

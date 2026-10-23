@@ -1,0 +1,5 @@
+
+
+progress 34,915 rows {'users': 6030, 'follows': 28885}
+progress 36,744 rows {'users': 6340, 'follows': 30404}
+REPLAY_DONE rows=36,744 per_table={'users': 6340, 'follows': 30404} elapsed=7s dry_run=False

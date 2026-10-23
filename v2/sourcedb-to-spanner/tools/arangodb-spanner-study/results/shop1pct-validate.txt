@@ -1,0 +1,42 @@
+
+
+[PASS] events: 47 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] events: ArangoDB count 23330000 == summary rowCount
+[PASS] events: Spanner 23330000 + DLQ 0 == 23330000
+[PASS] events: 500 sampled documents match (0 with WARN)
+--- table follows (collection follows, EDGE)
+[PASS] follows: 40 bulk files with schema md5 a7f80905c6bc6e9912edef8c18d80a52
+[PASS] follows: ArangoDB count 20000000 == summary rowCount
+[PASS] follows: Spanner 20000000 + DLQ 0 == 20000000
+[PASS] follows: 500 sampled documents match (0 with WARN)
+--- table hostile_keys (collection hostile_keys, DOCUMENT)
+[PASS] hostile_keys: 1 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] hostile_keys: ArangoDB count 33 == summary rowCount
+[PASS] hostile_keys: Spanner 33 + DLQ 0 == 33
+[PASS] hostile_keys: 33 sampled documents match (0 with WARN)
+--- table orders (collection orders, DOCUMENT)
+[PASS] orders: 13 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] orders: ArangoDB count 6250000 == summary rowCount
+[PASS] orders: Spanner 6250000 + DLQ 0 == 6250000
+[PASS] orders: 500 sampled documents match (0 with WARN)
+--- table products (collection products, DOCUMENT)
+[PASS] products: 3 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] products: ArangoDB count 1250000 == summary rowCount
+[PASS] products: Spanner 1250000 + DLQ 0 == 1250000
+[PASS] products: 500 sampled documents match (0 with WARN)
+--- table purchased (collection purchased, EDGE)
+[PASS] purchased: 40 bulk files with schema md5 a7f80905c6bc6e9912edef8c18d80a52
+[PASS] purchased: ArangoDB count 20000000 == summary rowCount
+[PASS] purchased: Spanner 20000000 + DLQ 0 == 20000000
+[PASS] purchased: 500 sampled documents match (0 with WARN)
+--- table type_zoo (collection type_zoo, DOCUMENT)
+[PASS] type_zoo: 1 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] type_zoo: ArangoDB count 100000 == summary rowCount
+[PASS] type_zoo: Spanner 100000 + DLQ 0 == 100000
+[PASS] type_zoo: 500 sampled documents match (103 with WARN)
+--- table users (collection users, DOCUMENT)
+[PASS] users: 10 bulk files with schema md5 b36539a80425c7f2c6178856a7bb935f
+[PASS] users: ArangoDB count 5000000 == summary rowCount
+[PASS] users: Spanner 5000000 + DLQ 0 == 5000000
+[PASS] users: 500 sampled documents match (0 with WARN)
+summary: {'PASS': 32, 'WARN': 103, 'FAIL': 0}

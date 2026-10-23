@@ -1,0 +1,35 @@
+4251383983736gs://arango-terraform-demo-host/exports/shop10t/full2
+job d72229c9bc2f4dbcbab0b57758687258 state=DONE
+26/10/17 19:24:21 INFO ArangoDbToGcsExporter: Exporting 8 collections from ArangoDB 3.11.14 database 'shop10t' to gs://arango-terraform-demo-host/exports/shop10t/full2 (partitioning=RANGE)
+26/10/17 19:25:03 INFO KeyRangePlanner: events: sampled 32539 keys (p=1.0001428775539362E-5), planned 1575 ranges (requested 1575)
+26/10/17 19:25:27 INFO ArangoDbToGcsExporter: Partition verification OK. events: 1575 partitions count 3149550000 documents in total (0 empty); collection count is 3149550000
+26/10/17 19:37:26 INFO ArangoDbToGcsExporter: events: exported 3149550000 rows (source count before 3149550000, after 3149550000) with 1575 queries
+26/10/17 19:38:04 INFO KeyRangePlanner: follows: sampled 27565 keys (p=1.0E-5), planned 1350 ranges (requested 1350)
+26/10/17 19:38:25 INFO ArangoDbToGcsExporter: Partition verification OK. follows: 1350 partitions count 2700000000 documents in total (0 empty); collection count is 2700000000
+26/10/17 19:43:55 INFO ArangoDbToGcsExporter: follows: exported 2700000000 rows (source count before 2700000000, after 2700000000) with 1350 queries
+26/10/17 19:43:55 INFO ArangoDbToGcsExporter: Partition verification OK. hostile_keys: 1 partitions count 33 documents in total (0 empty); collection count is 33
+26/10/17 19:43:57 INFO ArangoDbToGcsExporter: hostile_keys: exported 33 rows (source count before 33, after 33) with 1 queries
+26/10/17 19:44:09 INFO KeyRangePlanner: orders: sampled 8825 keys (p=1.0002962962962964E-5), planned 422 ranges (requested 422)
+26/10/17 19:44:15 INFO ArangoDbToGcsExporter: Partition verification OK. orders: 422 partitions count 843750000 documents in total (0 empty); collection count is 843750000
+26/10/17 19:51:11 INFO ArangoDbToGcsExporter: orders: exported 843750000 rows (source count before 843750000, after 843750000) with 422 queries
+26/10/17 19:51:14 INFO KeyRangePlanner: products: sampled 1837 keys (p=1.0074074074074074E-5), planned 85 ranges (requested 85)
+26/10/17 19:51:15 INFO ArangoDbToGcsExporter: Partition verification OK. products: 85 partitions count 168750000 documents in total (0 empty); collection count is 168750000
+26/10/17 20:01:28 INFO ArangoDbToGcsExporter: products: exported 168750000 rows (source count before 168750000, after 168750000) with 85 queries
+26/10/17 20:02:06 INFO KeyRangePlanner: purchased: sampled 26897 keys (p=1.0E-5), planned 1350 ranges (requested 1350)
+26/10/17 20:02:26 INFO ArangoDbToGcsExporter: Partition verification OK. purchased: 1350 partitions count 2700000000 documents in total (0 empty); collection count is 2700000000
+26/10/17 20:08:07 INFO ArangoDbToGcsExporter: purchased: exported 2700000000 rows (source count before 2700000000, after 2700000000) with 1350 queries
+26/10/17 20:08:07 INFO KeyRangePlanner: type_zoo: sampled 967 keys (p=7.407407407407407E-5), planned 7 ranges (requested 7)
+26/10/17 20:08:08 INFO ArangoDbToGcsExporter: Partition verification OK. type_zoo: 7 partitions count 13500000 documents in total (0 empty); collection count is 13500000
+26/10/17 20:09:20 INFO ArangoDbToGcsExporter: type_zoo: exported 13500000 rows (source count before 13500000, after 13500000) with 7 queries
+26/10/17 20:09:29 INFO KeyRangePlanner: users: sampled 6203 keys (p=1.0014814814814815E-5), planned 338 ranges (requested 338)
+26/10/17 20:09:34 INFO ArangoDbToGcsExporter: Partition verification OK. users: 338 partitions count 675000000 documents in total (0 empty); collection count is 675000000
+26/10/17 20:14:41 INFO ArangoDbToGcsExporter: users: exported 675000000 rows (source count before 675000000, after 675000000) with 338 queries
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table events (collection events, DOCUMENT): 3149550000 rows in 2269 files, max doc 1608 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table follows (collection follows, EDGE): 2700000000 rows in 1935 files, max doc 630 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table hostile_keys (collection hostile_keys, DOCUMENT): 33 rows in 1 files, max doc 830 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table orders (collection orders, DOCUMENT): 843750000 rows in 617 files, max doc 3225 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table products (collection products, DOCUMENT): 168750000 rows in 124 files, max doc 7120 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table purchased (collection purchased, EDGE): 2700000000 rows in 1956 files, max doc 592 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table type_zoo (collection type_zoo, DOCUMENT): 13500000 rows in 10 files, max doc 1235 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Table users (collection users, DOCUMENT): 675000000 rows in 492 files, max doc 2185 bytes, 0 oversized
+26/10/17 20:14:42 INFO ArangoDbToGcsExporter: Export complete: gs://arango-terraform-demo-host/exports/shop10t/full2/manifest.json (consistent=true)

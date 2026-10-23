@@ -1,0 +1,12 @@
+
+
+08:50:50
+users             675,000,000
+products          168,750,000
+orders            843,750,000
+events          3,149,550,000
+follows         2,700,000,000
+purchased       2,700,000,000
+type_zoo           13,500,000
+hostile_keys               33
+TOTAL          10,250,550,033

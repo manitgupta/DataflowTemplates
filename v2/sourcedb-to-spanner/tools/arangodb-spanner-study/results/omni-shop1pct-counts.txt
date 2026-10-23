@@ -1,0 +1,2 @@
+after clean restart, per-table COUNT(*) on Omni shop1pct:
+events 23330000; follows 20000000; hostile_keys 33; orders 6250000; products 1250000; purchased 20000000; type_zoo 100000; users 5000000; TOTAL 75930033

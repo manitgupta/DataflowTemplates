@@ -1,0 +1,42 @@
+
+
+[WARN] type_zoo/z000004081761: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000004508631: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000005525711: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000009046411: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000004527166: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000011482766: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000000271441: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000007472731: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000011281651: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000012657701: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000012169561: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000004714726: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000007391626: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000008741251: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000003479816: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000004307381: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000005981046: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000007380686: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000001517366: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000004268186: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000008043226: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000011121246: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000011166611: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000008923656: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000003030061: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000012724911: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000004304086: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000002825106: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000009537381: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000005842081: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000006761681: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000013061741: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000001303336: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[WARN] type_zoo/z000005199636: Spanner JSON number normalisation: $.big: '-9223372036854775808' != '-9223372036854776000'
+[PASS] type_zoo: 1000 sampled documents match (222 with WARN)
+--- table users (collection users, DOCUMENT)
+[PASS] users: ArangoDB count 675000000 == manifest rowCount
+[PASS] users: Spanner 675000000 + DLQ 0 == 675000000
+[PASS] users: 1000 sampled documents match (0 with WARN)
+summary: {'PASS': 24, 'WARN': 222, 'FAIL': 0}
